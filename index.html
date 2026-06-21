@@ -420,7 +420,9 @@ async function addPhotos(files){
   for(const f of files){
     const blob = await compress(f);
     if(!blob){ skipped++; continue; }                 // 변환 안 되는 사진은 제외
-    photos.push({ blob, url:URL.createObjectURL(blob) });
+    const b64 = await blobToB64(blob);                 // 캡처 직후(메모리 신선) 텍스트로 변환 → 아이폰 IndexedDB blob 손상 회피
+    if(!b64){ skipped++; continue; }
+    photos.push({ blob, b64, size:blob.size, url:URL.createObjectURL(blob) });
   }
   if(photos.length) setReceipt("O");   // 사진이 있으면 영수증 자동 O
   renderPhotos();
@@ -463,7 +465,7 @@ async function save(){
     note: $("f-note").value.trim(),
     receipt: receiptYN,                     // 영수증 O / X
     receiptNo: seq,
-    photos: photos.map(p=>p.blob),          // Blob 그대로 저장
+    photos: photos.map(p=>({ b64:p.b64, size:p.size })),  // 텍스트로 보관(업로드 안정), blob 대신
     photoCount: photos.length,
     syncState: "대기",                       // 동기화 전 (시트 반영은 다음 단계)
     createdAt: Date.now()
@@ -508,7 +510,10 @@ async function renderList(){
     let amtMain, amtSub="";
     if(e.currency==="원화"){ amtMain = e.amount.toLocaleString()+"원"; }
     else { amtMain = e.amount.toLocaleString()+" "+curLabel(e.currency); if(e.krw!=null) amtSub = "≈ "+e.krw.toLocaleString()+"원"; }
-    const imgs = (e.photos||[]).map(b=>`<img src="${URL.createObjectURL(b)}">`).join("");
+    const imgs = (e.photos||[]).map(p=>{
+      const src = (p instanceof Blob) ? URL.createObjectURL(p) : (p && p.b64 ? "data:image/jpeg;base64,"+p.b64 : "");
+      return src ? `<img src="${src}">` : "";
+    }).join("");
     const d=document.createElement("div"); d.className="item";
     d.innerHTML = `
       <div class="top">
@@ -545,16 +550,17 @@ function toast(msg){
    실패/끊김 시 중단하고 다음에 이어서 재시도 (완료된 건은 다시 안 보냄)
    ===================================================================== */
 function blobToB64(blob){
-  return new Promise((res,rej)=>{
+  return new Promise((res)=>{
     const r=new FileReader();
-    r.onload=()=>res(String(r.result).split(",")[1]);  // data: 접두어 제거, 순수 base64만
-    r.onerror=()=>rej(r.error);
+    r.onload=()=>res(String(r.result).split(",")[1]||null);  // 순수 base64만, 실패 시 null
+    r.onerror=()=>res(null);
     r.readAsDataURL(blob);
   });
 }
 async function serialize(e){
-  const photos=[];
-  for(const b of (e.photos||[])){ photos.push(await blobToB64(b)); }
+  const photos=(e.photos||[])
+    .filter(p=>!(p instanceof Blob))        // 구버전(blob) 항목은 무시 (옛 테스트 데이터)
+    .map(p=>({ data:p.b64, size:p.size }));
   return { id:e.id, team:e.team, type:e.type, account:e.account, fund:e.fund,
            date:e.date, desc:e.desc, currency:e.currency, amount:e.amount,
            note:e.note, receipt:e.receipt, receiptNo:e.receiptNo, photos };
