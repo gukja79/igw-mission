@@ -294,15 +294,16 @@ function compress(file){
     img.onload = ()=>{
       const max = 1280;
       let {width:w, height:h} = img;
+      if(!w || !h){ URL.revokeObjectURL(url); return res(null); }
       if(w>h && w>max){ h=Math.round(h*max/w); w=max; }
       else if(h>=w && h>max){ w=Math.round(w*max/h); h=max; }
       const cv = document.createElement("canvas");
       cv.width=w; cv.height=h;
       cv.getContext("2d").drawImage(img,0,0,w,h);
       URL.revokeObjectURL(url);
-      cv.toBlob(b=>res(b), "image/jpeg", 0.7);
+      cv.toBlob(b=>res(b||null), "image/jpeg", 0.7);
     };
-    img.onerror=()=>res(file);
+    img.onerror=()=>{ URL.revokeObjectURL(url); res(null); };  // 변환 불가 → null (원본째 올리지 않음)
     img.src=url;
   });
 }
@@ -415,12 +416,15 @@ function switchTab(which){
 
 /* 사진 추가/표시 */
 async function addPhotos(files){
+  let skipped=0;
   for(const f of files){
     const blob = await compress(f);
+    if(!blob){ skipped++; continue; }                 // 변환 안 되는 사진은 제외
     photos.push({ blob, url:URL.createObjectURL(blob) });
   }
   if(photos.length) setReceipt("O");   // 사진이 있으면 영수증 자동 O
   renderPhotos();
+  if(skipped) toast(`사진 ${skipped}장은 형식을 변환할 수 없어 제외됐어요. 다시 촬영해 주세요.`);
 }
 function renderPhotos(){
   const box=$("photos");
@@ -536,13 +540,14 @@ function toast(msg){
 }
 
 /* =====================================================================
-   동기화 — 연결되면 구글시트로 한 건씩 전송 (사진 제외, 행 데이터만)
+   동기화 — 연결되면 구글시트로 한 건씩 전송 (행 데이터 + 영수증 사진)
+   사진은 압축본을 base64로 함께 보냄 → 서버가 드라이브 저장 후 K열에 링크
    실패/끊김 시 중단하고 다음에 이어서 재시도 (완료된 건은 다시 안 보냄)
    ===================================================================== */
 function blobToB64(blob){
   return new Promise((res,rej)=>{
     const r=new FileReader();
-    r.onload=()=>res(String(r.result).split(",")[1]);
+    r.onload=()=>res(String(r.result).split(",")[1]);  // data: 접두어 제거, 순수 base64만
     r.onerror=()=>rej(r.error);
     r.readAsDataURL(blob);
   });
@@ -557,7 +562,7 @@ async function serialize(e){
 async function postEntry(cfg, e){
   const res = await fetch(cfg.url, {
     method:"POST",
-    headers:{ "Content-Type":"text/plain;charset=utf-8" },
+    headers:{ "Content-Type":"text/plain;charset=utf-8" },  // preflight 회피 (Apps Script)
     body: JSON.stringify({ secret:cfg.secret, entry: await serialize(e) })
   });
   return res.json();
