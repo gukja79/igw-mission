@@ -539,16 +539,26 @@ function toast(msg){
    동기화 — 연결되면 구글시트로 한 건씩 전송 (사진 제외, 행 데이터만)
    실패/끊김 시 중단하고 다음에 이어서 재시도 (완료된 건은 다시 안 보냄)
    ===================================================================== */
-function serialize(e){
+function blobToB64(blob){
+  return new Promise((res,rej)=>{
+    const r=new FileReader();
+    r.onload=()=>res(String(r.result).split(",")[1]);
+    r.onerror=()=>rej(r.error);
+    r.readAsDataURL(blob);
+  });
+}
+async function serialize(e){
+  const photos=[];
+  for(const b of (e.photos||[])){ photos.push(await blobToB64(b)); }
   return { id:e.id, team:e.team, type:e.type, account:e.account, fund:e.fund,
            date:e.date, desc:e.desc, currency:e.currency, amount:e.amount,
-           note:e.note, receipt:e.receipt, receiptNo:e.receiptNo };
+           note:e.note, receipt:e.receipt, receiptNo:e.receiptNo, photos };
 }
 async function postEntry(cfg, e){
   const res = await fetch(cfg.url, {
     method:"POST",
-    headers:{ "Content-Type":"text/plain;charset=utf-8" },  // preflight 회피 (Apps Script)
-    body: JSON.stringify({ secret:cfg.secret, entry:serialize(e) })
+    headers:{ "Content-Type":"text/plain;charset=utf-8" },
+    body: JSON.stringify({ secret:cfg.secret, entry: await serialize(e) })
   });
   return res.json();
 }
