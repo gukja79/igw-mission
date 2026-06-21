@@ -16,7 +16,7 @@
 - `sw.js`         — 서비스워커 (오프라인 셸 캐시). **파일 수정 시 맨 위 CACHE 버전 올리기**
 - `manifest.json` — PWA 설치 정보
 - `icon-192.png`, `icon-512.png` — 앱 아이콘
-- `Code.gs`       — Apps Script (각 팀 시트에 **수동으로 붙여 배포** — Pages 대상 아님, 참고용 보관)
+- `Code.gs`       — Apps Script (**독립형**, script.google.com에 1개만 배포해 7팀 공용 — Pages 대상 아님)
 
 ## 현재 상태
 - [완료] 1단계 — 오프라인 입력 + 폰 저장(사진 포함) + 영수증 O/X + 내역 목록
@@ -30,12 +30,18 @@
 - `SYNC[팀]`: 각 팀 시트 Apps Script 배포 후 `url`·`secret` 입력 (현재 비어 있음)
 - `CURRENCIES`: 원화 / 달러 / 현지화1 / 현지화2 (시트 H열 값과 동일, label만 통화명으로 변경 가능)
 
-## 팀 시트 연결 (팀마다 1회)
-1. 시트 `E12`/`F12`에 환산 수식 입력 (아래 참조)
-2. `I3`=달러환율, `I6`=현지화1환율, `I9`=현지화2환율 확인
-3. 확장 프로그램 → Apps Script에 `Code.gs` 붙이고 `SECRET`/`SHEET_NAME`/`FIRST_DATA_ROW` 조정
-4. 배포 → 새 배포 → 웹 앱(실행: 나 / 액세스: 모든 사용자) → URL 복사
-5. `index.html`의 `SYNC[팀]`에 `url`·`secret` 입력 (secret은 `Code.gs`와 동일하게)
+## 시트 연결 (독립형 스크립트 1개로 전 팀 처리)
+> 팀 시트 소유자가 따로 있고 운영자는 '편집자'라, 시트에 묶지 않고
+> 운영자 계정의 독립 스크립트가 `openById`로 각 시트에 기록 → 소유권 문제 없음.
+
+1. 각 팀 시트의 `E12`/`F12`에 환산 수식 입력 (아래), `I3`/`I6`/`I9` 환율 확인
+2. script.google.com → 새 프로젝트 → `Code.gs` 붙여넣기
+3. `SECRET` 변경 + `SHEETS` 맵에 팀별 스프레드시트 ID 입력
+   (ID = 시트 URL의 `/d/`와 `/edit` 사이 문자열. `gid`는 탭 번호라 불필요)
+   - 몽골: `1xs9W_J6I1mlMDimLvrPKWLZOYeD_5NqgY86-qJByIhc`
+4. 배포 → 새 배포 → 웹 앱(실행: 나 / 액세스: 모든 사용자) → URL 1개 복사
+   (최초 배포 시 스프레드시트 접근 권한 승인 화면 → 허용)
+5. `index.html` `SYNC`의 테스트할 팀 칸에 그 URL·secret 입력 (전 팀 동일 값)
 
 ### 시트 수식 (수입/지출 자동 분기)
 ```
