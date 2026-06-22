@@ -37,7 +37,7 @@
 | 파일 | 역할 |
 |---|---|
 | `index.html` | 앱 전체 (팀 선택 → 입력폼 → 내역 목록 → 환율 설정). 하단에 TEAMS / ACCOUNTS / CURRENCIES / SYNC 설정 |
-| `sw.js` | 서비스워커 (오프라인 캐시). 파일 고칠 때마다 `CACHE` 버전 올림. 현재 `igw-mission-v5` |
+| `sw.js` | 서비스워커 (오프라인 캐시). 파일 고칠 때마다 `CACHE` 버전 올림. 현재 `igw-mission-v6` |
 | `manifest.json` | PWA 매니페스트 |
 | `icon-192.png`, `icon-512.png` | 앱 아이콘 |
 | `Code.gs` | **참고용 사본.** 실제로 도는 건 script.google.com의 Apps Script. repo의 Code.gs를 고쳐 push해도 서버는 안 바뀜 |
