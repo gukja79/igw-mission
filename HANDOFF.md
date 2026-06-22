@@ -1,72 +1,177 @@
-# igw-mission — 선교 오프라인 회계 (핸드오버)
+# igw-mission 인수인계 문서
 
-## 개요
-선교여행용 **오프라인 회계 입력 PWA**. 각 팀 회계가 본인 폰에서 오프라인으로
-일자·계정과목·지원금/자부담·내역·사용통화·사용금액·영수증을 입력 → 인터넷 연결 시
-각 팀 구글시트(`수입지출내역서`)에 자동으로 행이 추가됨. 원화 환산은 **시트 수식**이 계산.
-"PC에서 구글시트에 직접 입력하던 것"을 오프라인 모바일로 대체하는 도구.
+선교 해외 아웃리치 **오프라인 회계 PWA**. 각 팀 회계가 휴대폰에서 오프라인으로 지출/수입을 입력하면, 연결될 때 팀별 구글시트로 동기화되고 영수증 사진은 구글 드라이브에 저장된다.
 
-## 스택
-- 프론트: vanilla HTML/CSS/JS + IndexedDB(로컬 저장) + Service Worker(오프라인 셸)
-- 백엔드: 팀별 구글시트 + Apps Script 웹앱(doPost)
-- 호스팅: GitHub Pages (gukja79.github.io)
+> 최종 업데이트 기준 상태: **몽골팀 연결 + 사진 업로드(드라이브)까지 동작 검증 완료.** 앱 캐시 버전 `v5`.
 
-## 파일
-- `index.html`    — 앱 본체 (입력 / 내역 / 환율 화면, 동기화 로직)
-- `sw.js`         — 서비스워커 (오프라인 셸 캐시). **파일 수정 시 맨 위 CACHE 버전 올리기**
-- `manifest.json` — PWA 설치 정보
-- `icon-192.png`, `icon-512.png` — 앱 아이콘
-- `Code.gs`       — Apps Script (**독립형**, script.google.com에 1개만 배포해 7팀 공용 — Pages 대상 아님)
+---
 
-## 현재 상태
-- [완료] 1단계 — 오프라인 입력 + 폰 저장(사진 포함) + 영수증 O/X + 내역 목록
-- [완료] 2단계 — 연결 시 구글시트 자동 반영 (한 건씩, 끊기면 이어서, id 중복 방지)
-- [완료] 환율 설정 + 입력 시 원화 환산(≈) 실시간 표시
-- [남음] 사진 → 구글 드라이브 업로드 + 비고에 링크 (행 반영 검증 후 진행)
-- [최후순위] 환전 거래내역 시트로 기준환율 자동 산출 (시트 쪽 작업)
+## 1. 접속 / 배포 정보
 
-## 코드 안 설정값
-- `TEAMS`: 라오스1 · 몽골 · 중국1 · 인도네시아1 · 말레이시아1 · 캄보디아1 · 스리랑카 (7팀, 설정됨)
-- `SYNC[팀]`: 각 팀 시트 Apps Script 배포 후 `url`·`secret` 입력 (현재 비어 있음)
-- `CURRENCIES`: 원화 / 달러 / 현지화1 / 현지화2 (시트 H열 값과 동일, label만 통화명으로 변경 가능)
+| 항목 | 값 |
+|---|---|
+| GitHub 저장소 | https://github.com/gukja79/igw-mission (public, `main`) |
+| 라이브 PWA | https://gukja79.github.io/igw-mission/ |
+| 로컬 작업 경로 | `~/Documents/igw_mission` |
+| Apps Script 웹앱 URL | https://script.google.com/macros/s/AKfycbygbwjiL_zkHzgKwXlasJ4a1WpHZ8MlVGk6raBJtGwSc5UMUExC53FTL1hbpY74TZBt/exec |
+| 공용 SECRET | `29540027` (Code.gs `SECRET` = index.html `SYNC[팀].secret`. 공개 클라이언트에 들어있는 가벼운 게이트일 뿐 보안용 아님) |
+| 사진 상위 폴더 ID | `1J9cpOBhZKsa18NFBQ9Me0ajXfJ7NEFlT` (드라이브 폴더명 "2026아웃리치", 운영자 소유). 팀 폴더는 이 안에 자동 생성됨 |
+| 몽골 시트 ID | `1xs9W_J6I1mlMDimLvrPKWLZOYeD_5NqgY86-qJByIhc` |
 
-## 시트 연결 (독립형 스크립트 1개로 전 팀 처리)
-> 팀 시트 소유자가 따로 있고 운영자는 '편집자'라, 시트에 묶지 않고
-> 운영자 계정의 독립 스크립트가 `openById`로 각 시트에 기록 → 소유권 문제 없음.
+**권한 구조 주의**: 팀 시트의 소유자는 이건상(red9164@igodswill.org), 운영자(조국현, igwgukja@igodswill.org)는 **편집자**다. 그래서 시트에 묶인(bound) 스크립트가 아니라 **운영자 계정의 독립(standalone) Apps Script**가 `openById`로 시트를 열어 기록한다. 웹앱은 "실행: 나(조국현) / 액세스: 모든 사용자"로 배포 → 회계는 구글 로그인 없이 공개 PWA만 쓰면 된다.
 
-1. 각 팀 시트의 `E12`/`F12`에 환산 수식 입력 (아래), `I3`/`I6`/`I9` 환율 확인
-2. script.google.com → 새 프로젝트 → `Code.gs` 붙여넣기
-3. `SECRET` 변경 + `SHEETS` 맵에 팀별 스프레드시트 ID 입력
-   (ID = 시트 URL의 `/d/`와 `/edit` 사이 문자열. `gid`는 탭 번호라 불필요)
-   - 몽골: `1xs9W_J6I1mlMDimLvrPKWLZOYeD_5NqgY86-qJByIhc`
-4. 배포 → 새 배포 → 웹 앱(실행: 나 / 액세스: 모든 사용자) → URL 1개 복사
-   (최초 배포 시 스프레드시트 접근 권한 승인 화면 → 허용)
-5. `index.html` `SYNC`의 테스트할 팀 칸에 그 URL·secret 입력 (전 팀 동일 값)
+---
 
-### 시트 수식 (수입/지출 자동 분기)
+## 2. 스택 / 아키텍처
+
+- **프런트엔드**: GitHub Pages (정적 HTML/JS, 서비스워커로 오프라인 동작)
+- **백엔드**: Google Apps Script (독립형, 웹앱 1개·URL 1개로 7개 팀 공용)
+- **데이터**: 팀별 Google Sheets (예결산안 파일의 `수입지출내역서` 탭)
+- **사진**: Google Drive (운영자 드라이브, 팀별 폴더)
+- 원화 환산은 **앱이 아니라 시트 수식**이 계산한다. 앱은 사용통화·사용금액만 보낸다(입력 시 ≈원화 미리보기는 앱이 로컬 환율로 표시만 함).
+
+---
+
+## 3. 파일 구성 (repo)
+
+| 파일 | 역할 |
+|---|---|
+| `index.html` | 앱 전체 (팀 선택 → 입력폼 → 내역 목록 → 환율 설정). 하단에 TEAMS / ACCOUNTS / CURRENCIES / SYNC 설정 |
+| `sw.js` | 서비스워커 (오프라인 캐시). 파일 고칠 때마다 `CACHE` 버전 올림. 현재 `igw-mission-v5` |
+| `manifest.json` | PWA 매니페스트 |
+| `icon-192.png`, `icon-512.png` | 앱 아이콘 |
+| `Code.gs` | **참고용 사본.** 실제로 도는 건 script.google.com의 Apps Script. repo의 Code.gs를 고쳐 push해도 서버는 안 바뀜 |
+| `HANDOFF.md` | 이 문서 |
+
+---
+
+## 4. 시트 구조 (몽골 시트 기준, 전 팀 동일 템플릿)
+
+**`수입지출내역서` 탭** = 원본(raw). 앱이 입력 순서대로 맨 아래에 행을 추가한다. 데이터는 **12행부터**.
+
+| 열 | 내용 | 비고 |
+|---|---|---|
+| A | 일자 | 앱이 **진짜 날짜값**으로 기록 (정렬 위해) |
+| B | 계정과목 | `01.항공료`…`12.평가회` / `수입_항공료` 등 |
+| C | 지원금/자부담 | |
+| D | 내역 | |
+| E | 수입(원화) | **시트 수식** (12행에서 복사) |
+| F | 지출(원화) | **시트 수식** |
+| G | 사용 금액 | 앱 입력 |
+| H | 사용 통화 | 원화/달러/현지화1/현지화2 |
+| I | 영수증 | O/X |
+| J | 비고 | **회계 메모용** (사진 링크 아님) |
+| K | 사진 | **사진 드라이브 링크** (서버가 기록) |
+
+**환율 셀**: `I3`=달러 기준환율(예 1521), `I6`=현지화1(예 MNT 0.43), `I9`=현지화2(예 BAHT 36).
+
+**E12 / F12 수식** (수입/지출은 `LEFT($B12,2)="수입"`으로 분기):
 ```
-E12  =IF(LEFT($B12,2)="수입",IFERROR(ROUND(IF($H12="원화",$G12,IF($H12="달러",$I$3*$G12,IF($H12="현지화1",$G12*$I$6,IF($H12="현지화2",$G12*$I$9,"")))),0),""),"")
-F12  =IF(LEFT($B12,2)="수입","",IFERROR(ROUND(IF($H12="원화",$G12,IF($H12="달러",$I$3*$G12,IF($H12="현지화1",$G12*$I$6,IF($H12="현지화2",$G12*$I$9,"")))),0),""))
+E12 =IF(LEFT($B12,2)="수입",IFERROR(ROUND(IF($H12="원화",$G12,IF($H12="달러",$I$3*$G12,IF($H12="현지화1",$G12*$I$6,IF($H12="현지화2",$G12*$I$9,"")))),0),""),"")
+F12 =IF(LEFT($B12,2)="수입","",IFERROR(ROUND(IF($H12="원화",$G12,IF($H12="달러",$I$3*$G12,IF($H12="현지화1",$G12*$I$6,IF($H12="현지화2",$G12*$I$9,"")))),0),""))
 ```
 
-## 배포 (GitHub Pages)
-레포가 아직 없으면 (gh CLI 사용):
-```
-gh repo create gukja79/igw-mission --public --source=. --remote=origin --push
-```
-또는 수동:
-```
-git init
-git add .
-git commit -m "선교 오프라인 회계: 1·2단계 + 환율 표시"
-git branch -M main
-git remote add origin https://github.com/gukja79/igw-mission.git
-git push -u origin main
-```
-→ GitHub Settings → Pages → Branch: `main` / 루트 → `https://gukja79.github.io/igw-mission/`
+**`_synced` 숨김 탭**: 중복 방지 로그. 현재는 entry `id`만 기록. (아래 "다음 작업 1"에서 `[id, 행번호]`로 확장 예정 — 사진 재시도가 행을 찾기 위함.)
 
-## 테스트 체크리스트
-- 팀 선택 → "환율"에서 환율 입력 → 지출/수입 입력 시 원화 환산(≈) 표시되는지
-- 내역 탭 → "동기화" → 시트에 행 추가 + E/F열 원화 자동 계산되는지
-- 비행기 모드로 껐다 켜도 앱이 열리고 데이터가 남는지 / 연결되면 자동 동기화되는지
-- 사진 2~3장 첨부 → 영수증 자동 O / × 로 제거 가능한지
+---
+
+## 5. 앱 동작 / 데이터 모델
+
+- **계정과목**: 지출 `01.항공료, 02.여행자보험, 03.비자비, 04.준비비, 05.식비, 06.숙박비, 07.교통비, 08.사역비, 09.문화체험, 10.선교헌금, 11.예비비, 12.평가회` / 수입 `수입_항공료, 수입_체제비, 수입_아웃리치, 수입_기타수입`
+- **7개 팀**: 라오스1, 몽골, 중국1, 인도네시아1, 말레이시아1, 캄보디아1, 스리랑카 (기기당 1팀 고정)
+- **IndexedDB** `igw_mission` / `entries`. 엔트리 형태:
+  `{ id, team, type, account, fund, date, desc, currency, amount, krw, note, receipt, receiptNo, photos:[{b64,size}], photoCount, syncState, createdAt }`
+- **사진 처리 (중요)**:
+  - 촬영 → 캔버스로 **1280px / JPEG 0.7 압축**
+  - **압축 직후(메모리 신선할 때) base64 텍스트로 변환해 저장** — 아이폰 IndexedDB가 저장한 blob을 나중에 읽을 때 깨지는 버그를 피하기 위함
+  - 변환 안 되는 사진(특이 형식)은 **건너뛰고 "다시 촬영" 안내** (깨진 채 업로드 방지)
+- **동기화**: 연결되면 한 건씩 POST(text/plain — preflight 회피). 사진은 `[{data,size}]`로 함께 전송. 끊기면 중단 후 다음에 이어서(완료 건은 다시 안 보냄). 앱 열 때 / 온라인 복귀 시 / 수동 버튼으로 실행.
+- **서버 사진 무결성 검사**: 앱이 보낸 `size`와 서버가 디코드한 바이트 길이를 비교. 다르면 깨진 파일을 저장하지 않고 K열에 `⚠ 사진 N 전송 손상(받은크기/보낸크기)` 표시.
+- **드라이브 저장**: 상위 폴더 안에 팀 폴더 자동 생성. 파일명 `{영수증번호3자리}_{지출일}_{계정과목}.jpg` (여러 장이면 `_1`,`_2`). 예: `003_2026-06-25_01.항공료.jpg`. 기본 공유 `private`(운영자만 열람) — Code.gs `PHOTO_SHARE="view"`로 바꾸면 링크 가진 사람 보기 가능.
+
+---
+
+## 6. 배포 방법
+
+**터미널(Claude Code)에서 — 프런트엔드**
+```
+# repo에서 index.html / sw.js 수정 후
+git add index.html sw.js
+git commit -m "한 토픽 요약"
+git push
+```
+- 프런트 파일을 고치면 **항상 sw.js `CACHE` 버전 +1**. 폰에서 `https://gukja79.github.io/igw-mission/?v=N`로 새로고침해 새 버전 확인.
+
+**브라우저에서 — 백엔드 (Code.gs)**
+- repo push로는 **반영 안 됨.** script.google.com 편집기에서 새 코드 붙여넣기 → 저장 → **배포 관리 → 편집(연필) → 버전: 새 버전 → 배포**. **URL 그대로**.
+- **⚠ 형식 일치 주의**: index.html이 보내는 데이터 형식을 바꾸면(예: 사진을 `{data,size}`로) **Code.gs도 반드시 재배포**해야 한다. 안 맞으면 사진이 깨진다.
+- 드라이브 권한이 새로 필요할 때(사진 기능 최초)는 함수 1회 실행 → 권한 검토에서 Drive 허용(확인되지 않은 앱 경고 시 고급→이동→허용).
+
+---
+
+## 7. 완료된 것
+
+- 오프라인 입력 + IndexedDB + 사진 촬영/압축 + 내역 목록
+- 입력 시 ≈원화 미리보기 + 팀별 환율 설정 화면
+- 시트 동기화(행) — 몽골 검증 완료
+- 사진 → 드라이브(상위폴더/팀폴더) + K열 링크 — 몽골 검증 완료
+- 안정화: 캡처 시 base64 변환(아이폰 대응), 변환 불가 사진 건너뛰기, 서버 사진 크기 무결성 검사
+
+---
+
+## 8. 현재 상태 / 실사용 전 할 일
+
+1. **Code.gs 배포 — 확인됨 ✓** — Apps Script에 크기검사 버전 Code.gs(`{data,size}` 처리 + 전송 무결성 검사)가 배포돼 있어, 배포된 앱(v5)과 형식이 일치한다. 사진 업로드 정상 동작.
+2. **[남은 일] 테스트 데이터 정리** — 몽골 시트의 테스트 행(16행 이후), 앱 내역의 테스트 항목, 드라이브의 깨진 테스트 파일(003, 007 등) 삭제 후 실사용 시작.
+
+---
+
+## 9. 다음 작업 (우선순위)
+
+### 1) [다음 채팅에서 진행] 앱 "사진 실패" 표시 + "다시 올리기" 버튼
+
+**목표**: 사진 업로드가 실패하면 시트 K열뿐 아니라 **앱에서도** 회계가 알 수 있게 하고, 이미 동기화된 그 영수증에 **사진만 다시 붙일** 수 있게 한다. (회계는 앱만 보므로 시트 경고를 못 본다.)
+
+> 참고: 작업본 index.html에 UI 조각(배지/버튼)을 잠깐 넣었다가 **되돌려서 repo/배포본(v5)과 일치**시켜 두었다. 새 채팅에서는 아래 설계대로 **깨끗하게 처음부터** 구현하면 된다.
+
+**서버 (Code.gs)**
+- 사진 저장 로직을 헬퍼 `savePhotos_(sh, row, entry)` → `{ok, fail}` 로 분리.
+- `doPost`: `_synced`에 `[id]` 대신 **`[id, row]`** 기록(재시도가 행을 찾기 위함). 응답에 `photoFail` 개수 포함:
+  `return json({ ok:true, team, row, photos:pr.ok, photoFail:pr.fail });`
+- `doPost` 상단에 재시도 분기 추가:
+  `if(body.retryPhotos && body.entry && body.entry.id) return retryPhotos_(body.entry);`
+- `retryPhotos_(entry)`: `_synced`에서 id로 행을 찾아 `savePhotos_` 호출(없으면 에러).
+
+**앱 (index.html)**
+- `syncNow`: 응답 받은 뒤 `e.photoFail = (r.photoFail||0) > 0; e.syncedRow = r.row;` 저장.
+- `renderList`: `e.photoFail`이면 배지 `⚠ 사진 실패` + 버튼 `사진 다시 올리기`(`class="rephoto" data-id`) 표시. (CSS `.bd-fail`, `.item .rephoto` 추가)
+- 숨김 파일 입력 `#rephoto-input` 추가 + 변수 `rephotoTargetId`.
+- `bind()`의 `$("list").onclick`에 `.rephoto` 처리(타깃 id 저장 후 input 클릭), `#rephoto-input` onchange → `retryPhotos(id, files)`.
+- `retryPhotos(id, files)`: 새 사진 압축+b64 → `{ secret, retryPhotos:true, entry:{ id, team, receiptNo, date, account, photos:[{data,size}] } }` POST → 성공 시 `e.photos` 갱신, `e.photoFail=false`, `e.receipt="O"` 저장 후 재렌더.
+
+### 2) [보류] 정렬 보기 탭 `수입지출내역서01`
+회계는 **계정과목별 → 날짜순** 정렬을 원한다. 원본은 입력 순서대로 둬야 하므로(앱이 맨 아래에 추가), **별도 보기 탭**에서 수식으로 자동 정렬한다.
+- `수입지출내역서01` 탭의 1~11행(제목/환율/머리글)은 두고, **12행 아래를 전부 비운 뒤**(기존 수식·드롭다운 제거) `A12`에:
+  `=SORT(FILTER(수입지출내역서!A12:K, 수입지출내역서!B12:B<>""), 2, TRUE, 1, TRUE)`
+  (계정과목 B 오름차순 → 날짜 A 오름차순. 원본이 바뀌면 자동 재정렬.) K11 머리글 `사진`도.
+- 날짜 정렬이 깔끔하려면 A열이 진짜 날짜값이어야 하는데, Code.gs가 이미 그렇게 기록한다.
+
+### 3) [대기] 나머지 6개 팀 연결 (예산 시트 받는 대로)
+각 팀마다:
+- 팀 시트 ID 확인 → **Code.gs `SHEETS`에 추가** → **재배포(새 버전, URL 동일)**
+- index.html `SYNC[팀]`에 **같은 URL + 같은 secret `29540027`** 입력 → push
+- 각 팀 시트에 A~K 열, `I3/I6/I9` 환율, `E12/F12` 수식, `K11=사진` 준비
+
+### 4) [대기] 테스트 데이터 정리 (8번 참고)
+
+### 5) [먼 미래] 환전 거래내역 시트로 기준환율 자동 산출 (시트 작업, 최후순위)
+
+---
+
+## 10. 작업 패턴 / 주의사항
+
+- 설계·검토는 Claude 채팅에서, 파일 수정·git은 Claude Code 터미널에서.
+- Claude Code diff는 **건별로 승인**(allow-all 안 씀), **한 토픽 = 한 커밋**.
+- 프런트 파일 변경 시 **sw.js 버전 올리기** + 폰 `?v=N` 확인. 배포 문제 의심되면 먼저 githubstatus.com 확인.
+- **Code.gs는 repo가 아니라 Apps Script 편집기에서 재배포해야 실제 반영.**
+- 실제 주민번호 등 민감 개인정보는 Claude에 입력하지 않는다. 시스템 설계·구축만 Claude와 하고 실데이터는 로컬에서 처리.
