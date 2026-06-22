@@ -109,9 +109,12 @@
   .bd-exp{background:var(--red-bg); color:var(--red)} .bd-inc{background:var(--grn-bg); color:var(--grn)}
   .bd-jw{background:var(--blu-bg); color:var(--blu)} .bd-jb{background:var(--amb-bg); color:var(--amb)}
   .bd-wait{background:#f3f4f6; color:#6b7280}
+  .bd-fail{background:var(--red); color:#fff}
   .item .imgs{display:flex; gap:6px; margin-top:8px}
   .item .imgs img{width:52px; height:52px; border-radius:8px; object-fit:cover; border:1px solid var(--line)}
   .item .del{font-size:12px; color:#9ca3af; background:none; border:none; cursor:pointer; margin-top:8px; padding:0}
+  .item .rephoto{font-size:12px; font-weight:700; color:var(--red); background:#fff; border:1px solid var(--red);
+    border-radius:8px; padding:5px 10px; cursor:pointer; margin-top:8px; margin-right:10px}
   .item .meta{font-size:12px; color:#9ca3af; margin-top:2px}
 
   /* 토스트 */
@@ -204,6 +207,7 @@
       </div>
       <div id="sync-status"></div>
       <div id="list"></div>
+      <input type="file" id="rephoto-input" accept="image/*" multiple class="hidden">
     </div>
 
     <!-- 환율 설정 화면 -->
@@ -283,6 +287,7 @@ let receiptYN = "O";        // 영수증 있음(O) / 없음(X)
 let photos = [];           // [{blob, url}]
 let syncing = false;       // 동기화 진행 중 플래그
 let rateCfg = {};          // 통화별 환율/이름 (원화 환산 표시용, 팀별)
+let rephotoTargetId = null;
 
 /* =====================================================================
    사진 압축 (찍는 순간 가볍게)
@@ -530,8 +535,10 @@ async function renderList(){
         <span class="bd ${e.receipt==="O"?"bd-jw":"bd-wait"}">영수증 ${e.receipt||"-"}</span>
         ${e.note?`<span class="bd bd-wait">${e.note}</span>`:""}
         <span class="bd ${e.syncState==="완료"?"bd-inc":"bd-wait"}">● ${e.syncState||"대기"}</span>
+        ${e.photoFail?`<span class="bd bd-fail">⚠ 사진 실패</span>`:""}
       </div>
       ${imgs?`<div class="imgs">${imgs}</div>`:`<div class="meta">사진 없음</div>`}
+      ${e.photoFail?`<button class="rephoto" data-id="${e.id}">사진 다시 올리기</button>`:""}
       <button class="del" data-id="${e.id}">삭제</button>`;
     box.appendChild(d);
   });
@@ -587,7 +594,12 @@ async function syncNow(manual){
   for(const e of pending){
     try{
       const r = await postEntry(cfg, e);
-      if(r && r.ok){ e.syncState="완료"; await saveEntry(e); ok++; $("sync-status").textContent=`올리는 중… ${ok}/${pending.length}`; }
+      if(r && r.ok){
+        e.syncState="완료";
+        e.photoFail = (r.photoFail||0)>0;
+        e.syncedRow = r.row;
+        await saveEntry(e); ok++; $("sync-status").textContent=`올리는 중… ${ok}/${pending.length}`;
+      }
       else { toast("동기화 중단: "+((r&&r.error)||"서버 오류")); break; }
     }catch(err){ toast("연결이 끊겨 중단됐어요 (다음에 이어서)"); break; }
   }
@@ -599,6 +611,58 @@ async function syncNow(manual){
 function setSyncing(on){
   const b=$("btn-sync"); if(!b) return;
   b.disabled=on; b.textContent = on ? "동기화 중…" : "동기화";
+}
+
+/* 사진 다시 올리기 — 행은 그대로, K열 사진만 교체 */
+async function retryPhotos(id, files){
+  const cfg = SYNC[team];
+  if(!cfg || !cfg.url){ toast("동기화 URL이 설정되지 않았어요"); return; }
+  if(!navigator.onLine){ toast("인터넷에 연결돼 있지 않아요"); return; }
+  const all = await getAll();
+  const e = all.find(x=>x.id===id);
+  if(!e){ toast("내역을 찾을 수 없어요"); return; }
+
+  toast("사진 다시 올리는 중…");
+  const newPhotos=[];
+  let skipped=0;
+  for(const f of files){
+    const blob = await compress(f);
+    if(!blob){ skipped++; continue; }
+    const b64 = await blobToB64(blob);
+    if(!b64){ skipped++; continue; }
+    newPhotos.push({ b64, size:blob.size });
+  }
+  if(!newPhotos.length){ toast("올릴 수 있는 사진이 없어요"); return; }
+
+  try{
+    const res = await fetch(cfg.url, {
+      method:"POST",
+      headers:{ "Content-Type":"text/plain;charset=utf-8" },
+      body: JSON.stringify({
+        secret: cfg.secret,
+        retryPhotos: true,
+        entry: {
+          id: e.id, team: e.team, receiptNo: e.receiptNo,
+          date: e.date, account: e.account,
+          photos: newPhotos.map(p=>({ data:p.b64, size:p.size }))
+        }
+      })
+    });
+    const r = await res.json();
+    if(r && r.ok && (r.photoFail||0)===0){
+      e.photos = newPhotos;
+      e.photoCount = newPhotos.length;
+      e.photoFail = false;
+      e.receipt = "O";
+      await saveEntry(e);
+      renderList();
+      toast(skipped ? `사진 ${newPhotos.length}장 올림 (${skipped}장 제외)` : "사진 다시 올리기 성공");
+    } else {
+      toast("사진 다시 올리기 실패" + ((r&&r.error)?": "+r.error:""));
+    }
+  }catch(err){
+    toast("연결이 끊겨 실패했어요");
+  }
 }
 
 /* =====================================================================
@@ -628,7 +692,16 @@ function bind(){
   $("list").onclick=async e=>{
     if(e.target.classList.contains("del")){
       if(confirm("이 내역을 삭제할까요?")){ await delEntry(e.target.dataset.id); renderList(); toast("삭제됨"); }
+    } else if(e.target.classList.contains("rephoto")){
+      rephotoTargetId = e.target.dataset.id;
+      $("rephoto-input").click();
     }
+  };
+  $("rephoto-input").onchange = async ev => {
+    const files = ev.target.files;
+    if(files.length && rephotoTargetId) await retryPhotos(rephotoTargetId, files);
+    ev.target.value = "";
+    rephotoTargetId = null;
   };
 }
 

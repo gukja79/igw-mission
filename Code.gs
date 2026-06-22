@@ -51,6 +51,9 @@ function doPost(e){
     const body = JSON.parse(e.postData.contents);
     if(body.secret !== SECRET) return json({ ok:false, error:"인증 실패" });
 
+    // 사진만 다시 올리기 (행은 그대로, K열만 교체)
+    if(body.retryPhotos && body.entry && body.entry.id) return retryPhotos_(body.entry);
+
     const entry = body.entry;
     if(!entry || !entry.id) return json({ ok:false, error:"빈 요청" });
 
@@ -92,46 +95,85 @@ function doPost(e){
     // E·F 환산 수식을 12행에서 복사해 내려 채움 (수입/지출 자동 분기)
     sh.getRange(FIRST_DATA_ROW, 5, 1, 2).copyTo(sh.getRange(row, 5, 1, 2));
 
-    // 행 확정 — 사진 실패와 무관하게 '중복 행' 방지 위해 여기서 먼저 로그
-    log.appendRow([String(entry.id)]);
+    // 행 확정 — 사진 실패와 무관하게 '중복 행' 방지 위해 여기서 먼저 로그 (id, row)
+    // row 를 같이 적어 두면 재시도 시 같은 행의 K열 사진만 교체할 수 있음
+    log.appendRow([String(entry.id), row]);
 
-    // 영수증 사진 → 드라이브 팀 폴더 → 링크를 K열(11)에 기록 (실패해도 행은 보존)
-    let photoCount = 0;
-    try{
-      const pics = entry.photos || [];
-      if(pics.length){
-        const folder = getTeamFolder_(entry.team);
-        const acct = String(entry.account || "").replace(/[\\/:*?"<>|]/g, "-");
-        const base = pad3_(entry.receiptNo) + "_" + (entry.date || "nodate") + "_" + acct;
-        const out = [];
-        for(let i = 0; i < pics.length; i++){
-          const b64  = (typeof pics[i] === "string") ? pics[i] : pics[i].data;   // 신/구버전 호환
-          const want = (pics[i] && pics[i].size) ? Number(pics[i].size) : 0;       // 앱이 보낸 원본 크기
-          const bytes = Utilities.base64Decode(b64);
-          if(want && bytes.length !== want){
-            // 전송 중 손상/잘림 감지 → 깨진 파일 저장하지 않고 표시만
-            out.push("⚠ 사진" + (i + 1) + " 전송 손상(" + bytes.length + "/" + want + ")");
-            continue;
-          }
-          const nm = base + (pics.length > 1 ? "_" + (i + 1) : "") + ".jpg";
-          const f = folder.createFile(Utilities.newBlob(bytes, "image/jpeg", nm));
-          if(PHOTO_SHARE === "view"){
-            try{ f.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW); }catch(_){}
-          }
-          out.push(f.getUrl());
-          photoCount++;
-        }
-        if(out.length) sh.getRange(row, 11).setValue(out.join("\n"));  // K 사진
-      }
-    }catch(perr){
-      sh.getRange(row, 11).setValue("사진 업로드 오류: " + String(perr));
-    }
+    // 영수증 사진 → 드라이브 팀 폴더 → K열에 링크 (실패해도 행은 보존)
+    const pr = savePhotos_(sh, row, entry);
 
-    return json({ ok:true, team:entry.team, row:row, photos:photoCount });
+    return json({ ok:true, team:entry.team, row:row, photos:pr.ok, photoFail:pr.fail });
 
   }catch(err){
     return json({ ok:false, error:String(err) });
   }
+}
+
+// 사진만 다시 올리기: _synced 에서 id 로 원래 행을 찾아 K열만 교체
+function retryPhotos_(entry){
+  try{
+    const sheetId = SHEETS[entry.team];
+    if(!sheetId || sheetId.indexOf("여기에") === 0)
+      return json({ ok:false, error:"팀 시트 ID 미설정: " + entry.team });
+
+    const ss = SpreadsheetApp.openById(sheetId);
+    const sh = ss.getSheetByName(SHEET_NAME);
+    if(!sh) return json({ ok:false, error:"탭을 찾을 수 없음: " + SHEET_NAME });
+
+    const log = ss.getSheetByName("_synced");
+    if(!log) return json({ ok:false, error:"원본 기록(_synced) 없음" });
+
+    const logLast = log.getLastRow();
+    if(logLast === 0) return json({ ok:false, error:"원본 기록 비어 있음" });
+    const rows = log.getRange(1, 1, logLast, 2).getValues();
+    let row = 0;
+    for(let i = 0; i < rows.length; i++){
+      if(String(rows[i][0]) === String(entry.id)){ row = Number(rows[i][1]) || 0; break; }
+    }
+    if(!row) return json({ ok:false, error:"원본 행을 찾을 수 없음 (먼저 동기화하세요)" });
+
+    const pr = savePhotos_(sh, row, entry);
+    return json({ ok:true, team:entry.team, row:row, photos:pr.ok, photoFail:pr.fail });
+
+  }catch(err){
+    return json({ ok:false, error:String(err) });
+  }
+}
+
+// 사진 저장 공통 — K열에 링크 기록, {ok, fail} 반환
+function savePhotos_(sh, row, entry){
+  let okN = 0, failN = 0;
+  try{
+    const pics = entry.photos || [];
+    if(!pics.length) return { ok:0, fail:0 };
+
+    const folder = getTeamFolder_(entry.team);
+    const acct = String(entry.account || "").replace(/[\\/:*?"<>|]/g, "-");
+    const base = pad3_(entry.receiptNo) + "_" + (entry.date || "nodate") + "_" + acct;
+    const out = [];
+    for(let i = 0; i < pics.length; i++){
+      const b64  = (typeof pics[i] === "string") ? pics[i] : pics[i].data;   // 신/구버전 호환
+      const want = (pics[i] && pics[i].size) ? Number(pics[i].size) : 0;
+      const bytes = Utilities.base64Decode(b64);
+      if(want && bytes.length !== want){
+        out.push("⚠ 사진" + (i + 1) + " 전송 손상(" + bytes.length + "/" + want + ")");
+        failN++;
+        continue;
+      }
+      const nm = base + (pics.length > 1 ? "_" + (i + 1) : "") + ".jpg";
+      const f = folder.createFile(Utilities.newBlob(bytes, "image/jpeg", nm));
+      if(PHOTO_SHARE === "view"){
+        try{ f.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW); }catch(_){}
+      }
+      out.push(f.getUrl());
+      okN++;
+    }
+    if(out.length) sh.getRange(row, 11).setValue(out.join("\n"));  // K 사진
+  }catch(perr){
+    sh.getRange(row, 11).setValue("사진 업로드 오류: " + String(perr));
+    failN++;
+  }
+  return { ok:okN, fail:failN };
 }
 
 // 연결 확인용 (브라우저에서 URL 열면 보임)
