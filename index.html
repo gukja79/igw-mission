@@ -110,11 +110,36 @@
   .bd-jw{background:var(--blu-bg); color:var(--blu)} .bd-jb{background:var(--amb-bg); color:var(--amb)}
   .bd-wait{background:#f3f4f6; color:#6b7280}
   .bd-fail{background:var(--red); color:#fff}
+  .bd-edit{background:var(--amb); color:#fff}
+  .bd-del{background:#7f1d1d; color:#fff}
+  .item{cursor:pointer}
   .item .imgs{display:flex; gap:6px; margin-top:8px}
   .item .imgs img{width:52px; height:52px; border-radius:8px; object-fit:cover; border:1px solid var(--line)}
   .item .del{font-size:12px; color:#9ca3af; background:none; border:none; cursor:pointer; margin-top:8px; padding:0}
   .item .rephoto{font-size:12px; font-weight:700; color:var(--red); background:#fff; border:1px solid var(--red);
     border-radius:8px; padding:5px 10px; cursor:pointer; margin-top:8px; margin-right:10px}
+  .item .tap-hint{font-size:11px; color:#9ca3af; margin-top:8px}
+
+  /* 수정 모드 바 (입력 폼 상단) */
+  #edit-bar{display:flex; align-items:center; justify-content:space-between; gap:8px;
+    padding:10px 12px; background:#fef3c7; border:1px solid #f59e0b; border-radius:10px;
+    font-size:13px; font-weight:600; color:#b45309; margin-bottom:8px}
+  #edit-bar button{padding:6px 12px; border:none; border-radius:8px; background:#fff;
+    color:var(--ink); font-size:12px; font-weight:700; cursor:pointer}
+
+  /* 액션 시트 */
+  #action-sheet{position:fixed; inset:0; z-index:60; display:flex; align-items:flex-end; justify-content:center}
+  #action-sheet.hidden{display:none!important}
+  #sheet-backdrop{position:absolute; inset:0; background:rgba(0,0,0,.4)}
+  #action-sheet .sheet{position:relative; background:#fff; width:100%; max-width:480px;
+    border-radius:18px 18px 0 0; padding:14px 14px calc(14px + env(safe-area-inset-bottom));
+    box-shadow:0 -8px 30px rgba(0,0,0,.18)}
+  #action-sheet .sheet button{display:block; width:100%; margin:6px 0; padding:14px;
+    border:none; border-radius:12px; font-size:16px; font-weight:700; cursor:pointer}
+  #act-edit{background:var(--accent); color:#fff}
+  #act-edit.disabled{opacity:.4; pointer-events:none}
+  #act-delete{background:var(--red); color:#fff}
+  #act-cancel{background:var(--fill); color:var(--ink)}
   .item .meta{font-size:12px; color:#9ca3af; margin-top:2px}
 
   /* 토스트 */
@@ -151,6 +176,10 @@
 
     <!-- 입력 화면 -->
     <div id="view-input" class="card">
+      <div id="edit-bar" class="hidden">
+        <span>수정 중 · 영수증 #<span id="edit-no"></span></span>
+        <button type="button" id="btn-edit-cancel">취소</button>
+      </div>
       <label class="fld">유형</label>
       <div class="seg">
         <button type="button" id="t-exp" class="on-exp">지출</button>
@@ -191,9 +220,11 @@
         <button type="button" id="r-x">없음 (X)</button>
       </div>
 
-      <label class="fld">영수증 사진</label>
-      <div class="photos" id="photos">
-        <label class="addphoto">＋ 사진<input type="file" id="f-photo" accept="image/*" multiple class="hidden"></label>
+      <div id="photo-section">
+        <label class="fld">영수증 사진</label>
+        <div class="photos" id="photos">
+          <label class="addphoto">＋ 사진<input type="file" id="f-photo" accept="image/*" multiple class="hidden"></label>
+        </div>
       </div>
 
       <button class="save" id="btn-save">저장</button>
@@ -227,6 +258,15 @@
 
 </div>
 <div id="toast"></div>
+
+<div id="action-sheet" class="hidden">
+  <div id="sheet-backdrop"></div>
+  <div class="sheet">
+    <button id="act-edit">수정</button>
+    <button id="act-delete">삭제</button>
+    <button id="act-cancel">취소</button>
+  </div>
+</div>
 
 <script>
 /* =====================================================================
@@ -288,6 +328,8 @@ let photos = [];           // [{blob, url}]
 let syncing = false;       // 동기화 진행 중 플래그
 let rateCfg = {};          // 통화별 환율/이름 (원화 환산 표시용, 팀별)
 let rephotoTargetId = null;
+let editingId = null;        // 수정 모드 대상 id (null=새 입력)
+let actionTargetId = null;   // 액션 시트 대상 id
 
 /* =====================================================================
    사진 압축 (찍는 순간 가볍게)
@@ -379,6 +421,7 @@ function updatePreview(){
   else { el.textContent="환율 미설정 — 상단 '환율'에서 입력하세요"; el.className="krw warn"; }
 }
 function openRates(){
+  if(editingId) cancelEdit();
   $("view-input").classList.add("hidden"); $("view-list").classList.add("hidden");
   $("view-rates").classList.remove("hidden");
   const u=rateCfg["달러"]||{}, c1=rateCfg["현지화1"]||{}, c2=rateCfg["현지화2"]||{};
@@ -411,6 +454,7 @@ function setReceipt(yn){
 }
 
 function switchTab(which){
+  if(editingId && which !== "input") cancelEdit();
   $("tab-input").classList.toggle("on", which==="input");
   $("tab-list").classList.toggle("on", which==="list");
   $("view-input").classList.toggle("hidden", which!=="input");
@@ -444,46 +488,72 @@ function renderPhotos(){
   });
 }
 
-/* 저장 */
+/* 저장 (신규/수정 분기) */
 async function save(){
   const amount = $("f-amount").value.trim();
   if(!amount){ toast("사용 금액을 입력하세요"); return; }
 
   $("btn-save").disabled=true;
-  const seq = (parseInt(localStorage.getItem("igw_seq_"+team)||"0",10))+1;
-
   const curKey = $("f-currency").value;
   let krw = null;
   if(curKey==="원화") krw = Math.round(Number(amount));
   else if(rateCfg[curKey] && rateCfg[curKey].rate) krw = Math.round(Number(amount)*rateCfg[curKey].rate);
 
-  const entry = {
-    id: Date.now()+"-"+Math.random().toString(36).slice(2,7),
-    team, division:DIVISION, type,
-    account: $("f-account").value,
-    fund: $("f-fund").value,
-    date: $("f-date").value,
-    desc: $("f-desc").value.trim(),        // 내역
-    currency: curKey,                       // 사용 통화 (원화/달러/현지화1/현지화2)
-    amount: Number(amount),                 // 사용 금액
-    krw,                                    // 원화 환산(앱 표시용 ≈) — 정식 계산은 시트
-    note: $("f-note").value.trim(),
-    receipt: receiptYN,                     // 영수증 O / X
-    receiptNo: seq,
-    photos: photos.map(p=>({ b64:p.b64, size:p.size })),  // 텍스트로 보관(업로드 안정), blob 대신
-    photoCount: photos.length,
-    syncState: "대기",                       // 동기화 전 (시트 반영은 다음 단계)
-    createdAt: Date.now()
-  };
-
   try{
-    await saveEntry(entry);
-    localStorage.setItem("igw_seq_"+team, String(seq));
-    resetForm();
-    toast(`저장됨 · 영수증 #${seq}`);
-  }catch(e){
-    toast("저장 실패 — 다시 시도하세요");
-    console.error(e);
+    if(editingId){
+      // ----- 수정 -----
+      const all = await getAll();
+      const e = all.find(x=>x.id===editingId);
+      if(!e){ toast("내역을 찾을 수 없어요"); return; }
+      if(e.syncState === "삭제대기"){ toast("삭제 대기 항목은 수정할 수 없어요"); return; }
+
+      e.type = type;
+      e.account = $("f-account").value;
+      e.fund = $("f-fund").value;
+      e.date = $("f-date").value;
+      e.desc = $("f-desc").value.trim();
+      e.currency = curKey;
+      e.amount = Number(amount);
+      e.krw = krw;
+      e.note = $("f-note").value.trim();
+      e.receipt = receiptYN;
+      // 상태 전이: 완료 → 수정대기, 대기/수정대기는 그대로
+      if(e.syncState === "완료") e.syncState = "수정대기";
+
+      await saveEntry(e);
+      const no = e.receiptNo;
+      cancelEdit();
+      switchTab("list");
+      toast(`수정됨 · 영수증 #${no}`);
+    } else {
+      // ----- 신규 -----
+      const seq = (parseInt(localStorage.getItem("igw_seq_"+team)||"0",10))+1;
+      const entry = {
+        id: Date.now()+"-"+Math.random().toString(36).slice(2,7),
+        team, division:DIVISION, type,
+        account: $("f-account").value,
+        fund: $("f-fund").value,
+        date: $("f-date").value,
+        desc: $("f-desc").value.trim(),
+        currency: curKey,
+        amount: Number(amount),
+        krw,
+        note: $("f-note").value.trim(),
+        receipt: receiptYN,
+        receiptNo: seq,
+        photos: photos.map(p=>({ b64:p.b64, size:p.size })),
+        photoCount: photos.length,
+        syncState: "대기",
+        createdAt: Date.now()
+      };
+      await saveEntry(entry);
+      localStorage.setItem("igw_seq_"+team, String(seq));
+      resetForm();
+      toast(`저장됨 · 영수증 #${seq}`);
+    }
+  }catch(err){
+    toast(editingId ? "수정 실패 — 다시 시도하세요" : "저장 실패 — 다시 시도하세요");
+    console.error(err);
   }finally{
     $("btn-save").disabled=false;
   }
@@ -519,7 +589,14 @@ async function renderList(){
       const src = (p instanceof Blob) ? URL.createObjectURL(p) : (p && p.b64 ? "data:image/jpeg;base64,"+p.b64 : "");
       return src ? `<img src="${src}">` : "";
     }).join("");
-    const d=document.createElement("div"); d.className="item";
+    const s = e.syncState || "대기";
+    const stateBadge =
+      s === "완료"     ? `<span class="bd bd-inc">● 완료</span>` :
+      s === "수정대기" ? `<span class="bd bd-edit">수정 대기</span>` :
+      s === "삭제대기" ? `<span class="bd bd-del">삭제 대기</span>` :
+                         `<span class="bd bd-wait">● 대기</span>`;
+    const showRephoto = e.photoFail && s !== "삭제대기";
+    const d=document.createElement("div"); d.className="item"; d.dataset.id = e.id;
     d.innerHTML = `
       <div class="top">
         <div style="min-width:0">
@@ -534,12 +611,12 @@ async function renderList(){
         <span class="bd ${e.fund==="지원금"?"bd-jw":"bd-jb"}">${e.fund}</span>
         <span class="bd ${e.receipt==="O"?"bd-jw":"bd-wait"}">영수증 ${e.receipt||"-"}</span>
         ${e.note?`<span class="bd bd-wait">${e.note}</span>`:""}
-        <span class="bd ${e.syncState==="완료"?"bd-inc":"bd-wait"}">● ${e.syncState||"대기"}</span>
+        ${stateBadge}
         ${e.photoFail?`<span class="bd bd-fail">⚠ 사진 실패</span>`:""}
       </div>
       ${imgs?`<div class="imgs">${imgs}</div>`:`<div class="meta">사진 없음</div>`}
-      ${e.photoFail?`<button class="rephoto" data-id="${e.id}">사진 다시 올리기</button>`:""}
-      <button class="del" data-id="${e.id}">삭제</button>`;
+      ${showRephoto?`<button class="rephoto" data-id="${e.id}">사진 다시 올리기</button>`:""}
+      <div class="tap-hint">탭하여 수정·삭제</div>`;
     box.appendChild(d);
   });
 }
@@ -580,6 +657,14 @@ async function postEntry(cfg, e){
   });
   return res.json();
 }
+async function postAction(cfg, body){
+  const res = await fetch(cfg.url, {
+    method:"POST",
+    headers:{ "Content-Type":"text/plain;charset=utf-8" },
+    body: JSON.stringify(body)
+  });
+  return res.json();
+}
 async function syncNow(manual){
   if(syncing) return;
   const cfg = SYNC[team];
@@ -593,14 +678,33 @@ async function syncNow(manual){
   let ok=0;
   for(const e of pending){
     try{
-      const r = await postEntry(cfg, e);
-      if(r && r.ok){
-        e.syncState="완료";
-        e.photoFail = (r.photoFail||0)>0;
-        e.syncedRow = r.row;
-        await saveEntry(e); ok++; $("sync-status").textContent=`올리는 중… ${ok}/${pending.length}`;
+      let r;
+      if(e.syncState === "삭제대기"){
+        r = await postAction(cfg, { action:"delete", secret:cfg.secret, team:e.team, id:e.id });
+        if(r && r.ok){ await delEntry(e.id); ok++; }
+        else { toast("동기화 중단: "+((r&&r.error)||"서버 오류")); break; }
+      } else if(e.syncState === "수정대기"){
+        r = await postAction(cfg, {
+          action:"update", secret:cfg.secret, team:e.team, id:e.id,
+          date:e.date, account:e.account, fund:e.fund, desc:e.desc,
+          amount:e.amount, currency:e.currency, receipt:e.receipt, note:e.note
+        });
+        if(r && r.ok){
+          if(r.missing){ await delEntry(e.id); }      // 시트에서 수동 삭제됨 → 유령 카드 정리
+          else { e.syncState = "완료"; await saveEntry(e); }
+          ok++;
+        } else { toast("동기화 중단: "+((r&&r.error)||"서버 오류")); break; }
+      } else {
+        // 대기 → 신규 생성
+        r = await postEntry(cfg, e);
+        if(r && r.ok){
+          e.syncState="완료";
+          e.photoFail = (r.photoFail||0)>0;
+          e.syncedRow = r.row;
+          await saveEntry(e); ok++;
+        } else { toast("동기화 중단: "+((r&&r.error)||"서버 오류")); break; }
       }
-      else { toast("동기화 중단: "+((r&&r.error)||"서버 오류")); break; }
+      $("sync-status").textContent=`올리는 중… ${ok}/${pending.length}`;
     }catch(err){ toast("연결이 끊겨 중단됐어요 (다음에 이어서)"); break; }
   }
   syncing=false; setSyncing(false);
@@ -611,6 +715,77 @@ async function syncNow(manual){
 function setSyncing(on){
   const b=$("btn-sync"); if(!b) return;
   b.disabled=on; b.textContent = on ? "동기화 중…" : "동기화";
+}
+
+/* =====================================================================
+   수정 모드 / 액션 시트 (Phase 1)
+   ===================================================================== */
+function openEdit(entry){
+  editingId = entry.id;
+  setType(entry.type);
+  $("f-account").value = entry.account;
+  $("f-fund").value = entry.fund;
+  $("f-date").value = entry.date || todayStr();
+  $("f-desc").value = entry.desc || "";
+  $("f-currency").value = entry.currency || "원화";
+  $("f-amount").value = entry.amount;
+  $("f-note").value = entry.note || "";
+  setReceipt(entry.receipt || "O");
+  // 입력 폼의 새 사진 버퍼는 비움 (편집 모드에선 사진을 안 받음)
+  photos.forEach(p=>URL.revokeObjectURL(p.url)); photos=[]; renderPhotos();
+  $("photo-section").classList.add("hidden");
+  $("edit-bar").classList.remove("hidden");
+  $("edit-no").textContent = String(entry.receiptNo);
+  $("btn-save").textContent = "수정 저장";
+  updatePreview();
+  switchTab("input");
+}
+function cancelEdit(){
+  if(editingId === null) return;
+  editingId = null;
+  resetForm();
+  $("photo-section").classList.remove("hidden");
+  $("edit-bar").classList.add("hidden");
+  $("btn-save").textContent = "저장";
+}
+
+async function openActionSheet(entry){
+  actionTargetId = entry.id;
+  const editBtn = $("act-edit");
+  if(entry.syncState === "삭제대기") editBtn.classList.add("disabled");
+  else editBtn.classList.remove("disabled");
+  $("action-sheet").classList.remove("hidden");
+}
+function closeActionSheet(){
+  $("action-sheet").classList.add("hidden");
+  actionTargetId = null;
+}
+async function doEditAction(){
+  if(!actionTargetId) return;
+  const all = await getAll();
+  const e = all.find(x=>x.id===actionTargetId);
+  if(!e){ closeActionSheet(); return; }
+  if(e.syncState === "삭제대기"){ closeActionSheet(); return; }
+  closeActionSheet();
+  openEdit(e);
+}
+async function doDeleteAction(){
+  if(!actionTargetId) return;
+  const id = actionTargetId;
+  closeActionSheet();
+  if(!confirm("이 내역을 삭제할까요?")) return;
+  const all = await getAll();
+  const e = all.find(x=>x.id===id);
+  if(!e) return;
+  if(e.syncState === "대기"){
+    await delEntry(e.id);
+    toast("삭제됨");
+  } else {
+    e.syncState = "삭제대기";   // 수정대기 → 삭제대기 (delete wins)도 포함
+    await saveEntry(e);
+    toast("삭제 대기 — 다음 동기화에서 시트도 삭제");
+  }
+  renderList();
 }
 
 /* 사진 다시 올리기 — 행은 그대로, K열 사진만 교체 */
@@ -671,13 +846,19 @@ async function retryPhotos(id, files){
 function bind(){
   $("tab-input").onclick=()=>switchTab("input");
   $("tab-list").onclick =()=>switchTab("list");
-  $("btn-change").onclick=()=>{ if(confirm("팀을 다시 선택할까요? (저장된 내역은 그대로 남습니다)")) showSetup(); };
+  $("btn-change").onclick=()=>{
+    if(confirm("팀을 다시 선택할까요? (저장된 내역은 그대로 남습니다)")){
+      if(editingId) cancelEdit();
+      showSetup();
+    }
+  };
   $("t-exp").onclick=()=>setType("지출");
   $("t-inc").onclick=()=>setType("수입");
   $("r-o").onclick=()=>setReceipt("O");
   $("r-x").onclick=()=>setReceipt("X");
   $("f-photo").onchange=e=>{ if(e.target.files.length) addPhotos(e.target.files); e.target.value=""; };
   $("btn-save").onclick=save;
+  $("btn-edit-cancel").onclick=()=>{ cancelEdit(); switchTab("list"); };
   $("btn-sync").onclick=()=>syncNow(true);
   $("btn-rates").onclick=openRates;
   $("btn-rates-save").onclick=saveRates;
@@ -690,11 +871,16 @@ function bind(){
     }
   };
   $("list").onclick=async e=>{
-    if(e.target.classList.contains("del")){
-      if(confirm("이 내역을 삭제할까요?")){ await delEntry(e.target.dataset.id); renderList(); toast("삭제됨"); }
-    } else if(e.target.classList.contains("rephoto")){
+    if(e.target.classList.contains("rephoto")){
       rephotoTargetId = e.target.dataset.id;
       $("rephoto-input").click();
+      return;
+    }
+    const item = e.target.closest(".item");
+    if(item && item.dataset.id){
+      const all = await getAll();
+      const entry = all.find(x=>x.id===item.dataset.id);
+      if(entry) openActionSheet(entry);
     }
   };
   $("rephoto-input").onchange = async ev => {
@@ -703,6 +889,11 @@ function bind(){
     ev.target.value = "";
     rephotoTargetId = null;
   };
+  // 액션 시트
+  $("act-edit").onclick   = doEditAction;
+  $("act-delete").onclick = doDeleteAction;
+  $("act-cancel").onclick = closeActionSheet;
+  $("sheet-backdrop").onclick = closeActionSheet;
 }
 
 /* =====================================================================
