@@ -6,22 +6,34 @@
    운영자 계정의 '독립' 스크립트가 시트를 ID로 열어 기록합니다(openById).
    → 배포 1번, URL 1개로 7개 팀 모두 처리. 소유권 문제 없음.
 
-   설치
-   1) script.google.com → 새 프로젝트
-   2) 이 코드 전체 붙여넣기
-   3) SECRET 변경 + SHEETS 에 팀별 스프레드시트 ID 입력
-   4) 배포 → 새 배포 → 유형: 웹 앱 (실행: 나 / 액세스: 모든 사용자) → URL 복사
-      (최초 배포 시 '스프레드시트 접근' 권한 승인 화면이 한 번 뜸 → 허용)
-   5) index.html SYNC 의 해당 팀 칸에 이 URL·secret 입력 (전 팀 동일 값)
+   하는 일
+   - 앱이 보낸 한 건을 대상 시트 '수입지출내역서' 맨 아래에 추가
+   - A 일자는 '진짜 날짜값'으로 기록 (정렬 보기 탭이 날짜순으로 깔끔히 정렬되도록)
+   - E·F 원화 환산은 시트 수식이 계산 (12행 수식 복사)
+   - 영수증 사진은 운영자(나) 드라이브에 저장하고 그 링크를 K열에 기록
+     (J열 비고는 회계 메모용으로 비워둠)
+
+   설치 / 재배포
+   1) script.google.com → 이 코드 전체 붙여넣기
+   2) SECRET 변경 + SHEETS 에 팀별 스프레드시트 ID 입력
+   3) 배포 → 새 배포(또는 기존 배포 '편집 → 새 버전') → 웹 앱 (실행: 나 / 액세스: 모든 사용자)
+      ※ 이번 버전부터 '드라이브 접근' 권한 승인 화면이 새로 한 번 뜸 → 허용 (사진 저장용)
+   4) index.html SYNC 의 해당 팀 칸에 이 URL·secret 입력 (전 팀 동일 값)
 
    각 팀 시트 조건: 대상 탭에
      - I3 = 달러 기준환율 / I6 = 현지화1 환율 / I9 = 현지화2 환율
-     - E12, F12 에 환산 수식(수입/지출 자동 분기) — 핸드오버 수식
+     - E12, F12 에 환산 수식(수입/지출 자동 분기)
+     - K11 머리글 '사진' (사진 링크가 들어갈 칸)
    ===================================================================== */
 
-const SECRET = "CHANGE-ME-공용-비밀키";   // ← 앱 SYNC.secret 과 동일하게
+const SECRET = "29540027";                  // ← 앱 SYNC.secret 과 동일
 const SHEET_NAME = "수입지출내역서";        // 대상 탭 이름 (전 팀 공통)
 const FIRST_DATA_ROW = 12;                  // 데이터 시작 행 (전 팀 공통)
+
+// 영수증 사진 — 운영자(나) 드라이브에 저장
+const PARENT_FOLDER_ID = "1J9cpOBhZKsa18NFBQ9Me0ajXfJ7NEFlT";  // 이 폴더 안에 팀 폴더 생성. 비우면("") 내 드라이브 최상단에 PHOTO_PARENT 폴더를 자동 생성.
+const PHOTO_PARENT = "선교회계_영수증";     // PARENT_FOLDER_ID 가 빈 경우에만 사용
+const PHOTO_SHARE  = "private";             // "private"=나만 열람 / "view"=링크 가진 사람 보기 가능
 
 // 팀 → 스프레드시트 ID  (시트 URL의 /d/ 와 /edit 사이 문자열)
 const SHEETS = {
@@ -67,20 +79,55 @@ function doPost(e){
     const row = last + 1;
 
     // 입력 컬럼 기록 (E·F 원화 환산은 시트 수식이 계산)
-    sh.getRange(row, 1).setValue(entry.date || "");      // A 일자
-    sh.getRange(row, 2).setValue(entry.account || "");    // B 계정과목
-    sh.getRange(row, 3).setValue(entry.fund || "");       // C 지원금/자부담
-    sh.getRange(row, 4).setValue(entry.desc || "");       // D 내역
-    sh.getRange(row, 7).setValue(entry.amount);           // G 사용 금액
-    sh.getRange(row, 8).setValue(entry.currency || "");   // H 사용 통화
-    sh.getRange(row, 9).setValue(entry.receipt || "");    // I 영수증
-    sh.getRange(row, 10).setValue(entry.note || "");      // J 비고
+    sh.getRange(row, 1).setValue(toDate_(entry.date));    // A 일자 (진짜 날짜값)
+    sh.getRange(row, 1).setNumberFormat("yyyy-mm-dd");
+    sh.getRange(row, 2).setValue(entry.account || "");     // B 계정과목
+    sh.getRange(row, 3).setValue(entry.fund || "");        // C 지원금/자부담
+    sh.getRange(row, 4).setValue(entry.desc || "");        // D 내역
+    sh.getRange(row, 7).setValue(entry.amount);            // G 사용 금액
+    sh.getRange(row, 8).setValue(entry.currency || "");    // H 사용 통화
+    sh.getRange(row, 9).setValue(entry.receipt || "");     // I 영수증
+    sh.getRange(row, 10).setValue(entry.note || "");       // J 비고 (회계 메모)
 
     // E·F 환산 수식을 12행에서 복사해 내려 채움 (수입/지출 자동 분기)
     sh.getRange(FIRST_DATA_ROW, 5, 1, 2).copyTo(sh.getRange(row, 5, 1, 2));
 
+    // 행 확정 — 사진 실패와 무관하게 '중복 행' 방지 위해 여기서 먼저 로그
     log.appendRow([String(entry.id)]);
-    return json({ ok:true, team:entry.team, row:row });
+
+    // 영수증 사진 → 드라이브 팀 폴더 → 링크를 K열(11)에 기록 (실패해도 행은 보존)
+    let photoCount = 0;
+    try{
+      const pics = entry.photos || [];
+      if(pics.length){
+        const folder = getTeamFolder_(entry.team);
+        const acct = String(entry.account || "").replace(/[\\/:*?"<>|]/g, "-");
+        const base = pad3_(entry.receiptNo) + "_" + (entry.date || "nodate") + "_" + acct;
+        const out = [];
+        for(let i = 0; i < pics.length; i++){
+          const b64  = (typeof pics[i] === "string") ? pics[i] : pics[i].data;   // 신/구버전 호환
+          const want = (pics[i] && pics[i].size) ? Number(pics[i].size) : 0;       // 앱이 보낸 원본 크기
+          const bytes = Utilities.base64Decode(b64);
+          if(want && bytes.length !== want){
+            // 전송 중 손상/잘림 감지 → 깨진 파일 저장하지 않고 표시만
+            out.push("⚠ 사진" + (i + 1) + " 전송 손상(" + bytes.length + "/" + want + ")");
+            continue;
+          }
+          const nm = base + (pics.length > 1 ? "_" + (i + 1) : "") + ".jpg";
+          const f = folder.createFile(Utilities.newBlob(bytes, "image/jpeg", nm));
+          if(PHOTO_SHARE === "view"){
+            try{ f.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW); }catch(_){}
+          }
+          out.push(f.getUrl());
+          photoCount++;
+        }
+        if(out.length) sh.getRange(row, 11).setValue(out.join("\n"));  // K 사진
+      }
+    }catch(perr){
+      sh.getRange(row, 11).setValue("사진 업로드 오류: " + String(perr));
+    }
+
+    return json({ ok:true, team:entry.team, row:row, photos:photoCount });
 
   }catch(err){
     return json({ ok:false, error:String(err) });
@@ -90,6 +137,34 @@ function doPost(e){
 // 연결 확인용 (브라우저에서 URL 열면 보임)
 function doGet(){
   return json({ ok:true, msg:"선교 회계 수신 서버(공용) 작동 중" });
+}
+
+/* ---------------- 헬퍼 ---------------- */
+
+// "2026-06-21" → 진짜 날짜값 (로컬 자정, 타임존 밀림 없음)
+function toDate_(s){
+  if(!s) return "";
+  const p = String(s).split("-");
+  if(p.length !== 3) return s;
+  return new Date(Number(p[0]), Number(p[1]) - 1, Number(p[2]));
+}
+
+// 영수증번호 3자리 0채움 (1 → "001")
+function pad3_(n){
+  const s = String(n == null ? "" : n);
+  return s.length >= 3 ? s : ("000" + s).slice(-3);
+}
+
+function getOrCreateFolder_(parent, name){
+  const it = parent.getFoldersByName(name);
+  return it.hasNext() ? it.next() : parent.createFolder(name);
+}
+
+function getTeamFolder_(team){
+  const parent = PARENT_FOLDER_ID
+    ? DriveApp.getFolderById(PARENT_FOLDER_ID)
+    : getOrCreateFolder_(DriveApp.getRootFolder(), PHOTO_PARENT);
+  return getOrCreateFolder_(parent, team);
 }
 
 function json(obj){
