@@ -77,39 +77,64 @@ function doPost(e){
     const sh = ss.getSheetByName(SHEET_NAME);
     if(!sh) return json({ ok:false, error:"탭을 찾을 수 없음: " + SHEET_NAME });
 
-    // 중복 방지: L열에 같은 id 가 이미 있으면 이전에 만든 행
-    if(findRowById_(sh, entry.id)) return json({ ok:true, dup:true });
-
-    // 마지막 데이터 행 다음 (B열=계정과목 기준)
-    const maxRows = sh.getMaxRows();
-    const colB = sh.getRange(FIRST_DATA_ROW, 2, maxRows - FIRST_DATA_ROW + 1, 1).getValues();
-    let last = FIRST_DATA_ROW - 1;
-    for(let i = 0; i < colB.length; i++){
-      if(String(colB[i][0]).trim() !== "") last = FIRST_DATA_ROW + i;
+    // 중복 방지: L열에 같은 id 가 이미 있으면 이전에 만든 행 (락 밖에서 빠른 컷)
+    const dupRow = findRowById_(sh, entry.id);
+    if(dupRow){
+      const dupNo = sh.getRange(dupRow, RECEIPTNO_COL).getValue();
+      return json({ ok:true, dup:true, row:dupRow, receiptNo:(dupNo === "" ? null : Number(dupNo)) });
     }
-    const row = last + 1;
 
-    // 입력 컬럼 기록 (E·F 원화 환산은 시트 수식이 계산)
-    sh.getRange(row, 1).setValue(toDate_(entry.date));    // A 일자 (진짜 날짜값)
-    sh.getRange(row, 1).setNumberFormat("yyyy-mm-dd");
-    sh.getRange(row, 2).setValue(entry.account || "");     // B 계정과목
-    sh.getRange(row, 3).setValue(entry.fund || "");        // C 지원금/자부담
-    sh.getRange(row, 4).setValue(entry.desc || "");        // D 내역
-    sh.getRange(row, 7).setValue(entry.amount);            // G 사용 금액
-    sh.getRange(row, 8).setValue(entry.currency || "");    // H 사용 통화
-    sh.getRange(row, 9).setValue(entry.receipt || "");     // I 영수증
-    sh.getRange(row, 10).setValue(entry.note || "");       // J 비고 (회계 메모)
+    // [Phase 2] 번호 발급·행 기록은 락으로 직렬화 (동시 입력 시 번호 충돌 방지)
+    const lock = LockService.getScriptLock();
+    lock.waitLock(20000);   // 최대 20초 대기
+    let row, receiptNo;
+    try{
+      // 락 안에서 중복 재확인 (대기 중 같은 id 가 먼저 들어왔을 수 있음)
+      const reRow = findRowById_(sh, entry.id);
+      if(reRow){
+        const reNo = sh.getRange(reRow, RECEIPTNO_COL).getValue();
+        return json({ ok:true, dup:true, row:reRow, receiptNo:(reNo === "" ? null : Number(reNo)) });
+      }
 
-    // E·F 환산 수식을 12행에서 복사해 내려 채움 (수입/지출 자동 분기)
-    sh.getRange(FIRST_DATA_ROW, 5, 1, 2).copyTo(sh.getRange(row, 5, 1, 2));
+      // 마지막 데이터 행 다음 (B열=계정과목 기준)
+      const maxRows = sh.getMaxRows();
+      const colB = sh.getRange(FIRST_DATA_ROW, 2, maxRows - FIRST_DATA_ROW + 1, 1).getValues();
+      let last = FIRST_DATA_ROW - 1;
+      for(let i = 0; i < colB.length; i++){
+        if(String(colB[i][0]).trim() !== "") last = FIRST_DATA_ROW + i;
+      }
+      row = last + 1;
 
-    // L열에 entry id — 이후 수정·삭제·재시도가 이 행을 다시 찾는 키
-    sh.getRange(row, ID_COL).setValue(String(entry.id));
+      // [Phase 2] 서버 단일 발급: M열 현재 최대값 +1
+      receiptNo = nextReceiptNo_(sh);
 
-    // 영수증 사진 → 드라이브 팀 폴더 → K열에 링크 (실패해도 행은 보존)
-    const pr = savePhotos_(sh, row, entry);
+      // 입력 컬럼 기록 (E·F 원화 환산은 시트 수식이 계산)
+      sh.getRange(row, 1).setValue(toDate_(entry.date));    // A 일자 (진짜 날짜값)
+      sh.getRange(row, 1).setNumberFormat("yyyy-mm-dd");
+      sh.getRange(row, 2).setValue(entry.account || "");     // B 계정과목
+      sh.getRange(row, 3).setValue(entry.fund || "");        // C 지원금/자부담
+      sh.getRange(row, 4).setValue(entry.desc || "");        // D 내역
+      sh.getRange(row, 7).setValue(entry.amount);            // G 사용 금액
+      sh.getRange(row, 8).setValue(entry.currency || "");    // H 사용 통화
+      sh.getRange(row, 9).setValue(entry.receipt || "");     // I 영수증
+      sh.getRange(row, 10).setValue(entry.note || "");       // J 비고 (회계 메모)
 
-    return json({ ok:true, team:entry.team, row:row, photos:pr.ok, photoFail:pr.fail });
+      // E·F 환산 수식을 12행에서 복사해 내려 채움 (수입/지출 자동 분기)
+      sh.getRange(FIRST_DATA_ROW, 5, 1, 2).copyTo(sh.getRange(row, 5, 1, 2));
+
+      // L열 id + M열 영수증번호
+      sh.getRange(row, ID_COL).setValue(String(entry.id));
+      sh.getRange(row, RECEIPTNO_COL).setValue(receiptNo);
+
+      SpreadsheetApp.flush();   // 락 풀기 전에 기록 확정
+    } finally {
+      lock.releaseLock();
+    }
+
+    // 영수증 사진 → 드라이브 팀 폴더 → K열 링크 (서버 발급번호로 파일명, 실패해도 행 보존)
+    const pr = savePhotos_(sh, row, entry, receiptNo);
+
+    return json({ ok:true, team:entry.team, row:row, receiptNo:receiptNo, photos:pr.ok, photoFail:pr.fail });
 
   }catch(err){
     return json({ ok:false, error:String(err) });
@@ -297,7 +322,7 @@ function trashPhotosFromRow_(sh, row){
 }
 
 // 사진 저장 공통 — K열에 링크 기록, {ok, fail} 반환
-function savePhotos_(sh, row, entry){
+function savePhotos_(sh, row, entry, receiptNo){
   let okN = 0, failN = 0;
   try{
     const pics = entry.photos || [];
@@ -305,7 +330,7 @@ function savePhotos_(sh, row, entry){
 
     const folder = getTeamFolder_(entry.team);
     const acct = String(entry.account || "").replace(/[\\/:*?"<>|]/g, "-");
-    const base = pad3_(entry.receiptNo) + "_" + (entry.date || "nodate") + "_" + acct;
+    const base = pad3_(receiptNo != null ? receiptNo : entry.receiptNo) + "_" + (entry.date || "nodate") + "_" + acct;
     const out = [];
     for(let i = 0; i < pics.length; i++){
       const b64  = (typeof pics[i] === "string") ? pics[i] : pics[i].data;   // 신/구버전 호환
@@ -351,6 +376,20 @@ function toDate_(s){
 function pad3_(n){
   const s = String(n == null ? "" : n);
   return s.length >= 3 ? s : ("000" + s).slice(-3);
+}
+
+// [Phase 2] M열(영수증번호) 현재 최대값 +1. 빈 시트면 1부터.
+function nextReceiptNo_(sh){
+  const last = sh.getLastRow();
+  if(last < FIRST_DATA_ROW) return 1;
+  const n = last - FIRST_DATA_ROW + 1;
+  const col = sh.getRange(FIRST_DATA_ROW, RECEIPTNO_COL, n, 1).getValues();
+  let mx = 0;
+  for(let i = 0; i < col.length; i++){
+    const v = Number(col[i][0]);
+    if(!isNaN(v) && v > mx) mx = v;
+  }
+  return mx + 1;
 }
 
 function getOrCreateFolder_(parent, name){
