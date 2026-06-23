@@ -49,11 +49,15 @@ const SHEETS = {
 // L열에 entry id 기록 → 수정·삭제·재시도 모두 id 로 행을 찾는다
 // (행 식별을 단일 키로. 정렬 보기 탭 FILTER 가 A:K 라 L열은 안 딸려옴)
 const ID_COL = 12;
+const RECEIPTNO_COL = 13; // [Phase 2] M열=영수증번호(숨김). 서버 발급 max(M)+1 기준 + pull 이 읽어 표시.
 
 function doPost(e){
   try{
     const body = JSON.parse(e.postData.contents);
     if(body.secret !== SECRET) return json({ ok:false, error:"인증 실패" });
+
+    // [Phase 2] 내려받기(pull): 시트 전체를 앱 거울용 JSON 으로 반환 (읽기 전용)
+    if(body.action === "pull") return pullAll_(body);
 
     // 사진만 다시 올리기 (행은 그대로, K열만 교체)
     if(body.retryPhotos && body.entry && body.entry.id) return retryPhotos_(body.entry);
@@ -188,6 +192,71 @@ function deleteEntry_(body){
   }catch(err){
     return json({ ok:false, error:String(err) });
   }
+}
+
+// [Phase 2] 내려받기(pull): 대상 시트 모든 데이터 행을 앱 거울용으로 반환. 읽기 전용(시트 무수정).
+function pullAll_(body){
+  try{
+    const team = body.team;
+    const sheetId = SHEETS[team];
+    if(!sheetId || sheetId.indexOf("여기에") === 0)
+      return json({ ok:false, error:"팀 시트 ID 미설정: " + team });
+
+    const ss = SpreadsheetApp.openById(sheetId);
+    const sh = ss.getSheetByName(SHEET_NAME);
+    if(!sh) return json({ ok:false, error:"탭을 찾을 수 없음: " + SHEET_NAME });
+
+    const tz = ss.getSpreadsheetTimeZone();
+
+    const maxRows = sh.getMaxRows();
+    const colB = sh.getRange(FIRST_DATA_ROW, 2, maxRows - FIRST_DATA_ROW + 1, 1).getValues();
+    let last = FIRST_DATA_ROW - 1;
+    for(let i = 0; i < colB.length; i++){
+      if(String(colB[i][0]).trim() !== "") last = FIRST_DATA_ROW + i;
+    }
+    if(last < FIRST_DATA_ROW) return json({ ok:true, team:team, count:0, rows:[] });
+
+    const n = last - FIRST_DATA_ROW + 1;
+    const vals = sh.getRange(FIRST_DATA_ROW, 1, n, RECEIPTNO_COL).getValues();
+
+    const rows = [];
+    for(let i = 0; i < n; i++){
+      const r = vals[i];
+      const account = String(r[1] || "").trim();
+      if(!account) continue;
+      rows.push({
+        row:       FIRST_DATA_ROW + i,
+        id:        String(r[ID_COL - 1] || ""),
+        receiptNo: (r[RECEIPTNO_COL - 1] === "" || r[RECEIPTNO_COL - 1] == null)
+                     ? null : Number(r[RECEIPTNO_COL - 1]),
+        date:      fmtDate_(r[0], tz),
+        account:   account,
+        fund:      String(r[2] || ""),
+        desc:      String(r[3] || ""),
+        krwIn:     num_(r[4]),
+        krwOut:    num_(r[5]),
+        amount:    num_(r[6]),
+        currency:  String(r[7] || ""),
+        receipt:   String(r[8] || ""),
+        note:      String(r[9] || ""),
+        photo:     String(r[10] || "")
+      });
+    }
+    return json({ ok:true, team:team, count:rows.length, rows:rows });
+  }catch(err){
+    return json({ ok:false, error:String(err) });
+  }
+}
+
+// [Phase 2] 날짜 셀 → "yyyy-MM-dd" 문자열 (Date 면 시트 타임존으로 포맷, 아니면 문자열 그대로)
+function fmtDate_(v, tz){
+  if(v instanceof Date) return Utilities.formatDate(v, tz, "yyyy-MM-dd");
+  return String(v || "");
+}
+
+// [Phase 2] 숫자 셀 → 숫자 (빈칸/수식 "" 는 0)
+function num_(v){
+  return (typeof v === "number") ? v : 0;
 }
 
 // L열에서 id 가 있는 행 찾기 (없으면 0)
