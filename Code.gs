@@ -219,7 +219,10 @@ function deleteEntry_(body){
   }
 }
 
-// [Phase 2] 내려받기(pull): 대상 시트 모든 데이터 행을 앱 거울용으로 반환. 읽기 전용(시트 무수정).
+// [Phase 2] 내려받기(pull): 대상 시트의 모든 데이터 행을 앱이 거울로 읽을 형태로 반환.
+// + 보정: id(L) 비어 있고 A·B·C·D·G·H 가 모두 찬 '완성행'은 이때 L=id, M=영수증번호를
+//   자동 부여(위→아래 순). 누가 웹에서 입력했든 pull 한 번 거치면 빠짐없이 번호가 박힌다.
+//   번호 발급은 create 와 같은 nextReceiptNo_ + 같은 락 → 앱/웹 번호 안 겹침.
 function pullAll_(body){
   try{
     const team = body.team;
@@ -244,6 +247,36 @@ function pullAll_(body){
     const n = last - FIRST_DATA_ROW + 1;
     const vals = sh.getRange(FIRST_DATA_ROW, 1, n, RECEIPTNO_COL).getValues();
 
+    // [Phase 2] 보정 대상 탐지: id(L) 비어 있고 A·B·C·D·G·H 가 모두 찬 완성행(위→아래)
+    const need = [];
+    for(let i = 0; i < n; i++){
+      const r = vals[i];
+      if(!cellFilled_(r[ID_COL - 1]) && rowComplete_(r)) need.push(i);
+    }
+
+    if(need.length){
+      const lock = LockService.getScriptLock();
+      lock.waitLock(20000);
+      try{
+        // 락 안에서 L열만 신선하게 다시 읽어 '동시 pull' 중복 발급을 막는다
+        const idCol = sh.getRange(FIRST_DATA_ROW, ID_COL, n, 1).getValues();
+        let nextNo = nextReceiptNo_(sh);   // create 와 공유: max(M)+1
+        for(let k = 0; k < need.length; k++){
+          const i = need[k];
+          if(cellFilled_(idCol[i][0])) continue;   // 그새 채워졌으면 건너뜀
+          const newId = makeBackfillId_();
+          sh.getRange(FIRST_DATA_ROW + i, ID_COL).setValue(newId);            // L
+          sh.getRange(FIRST_DATA_ROW + i, RECEIPTNO_COL).setValue(nextNo);    // M
+          vals[i][ID_COL - 1] = newId;             // 반환 JSON 에도 즉시 반영
+          vals[i][RECEIPTNO_COL - 1] = nextNo;
+          nextNo++;
+        }
+        SpreadsheetApp.flush();   // 락 풀기 전에 기록 확정
+      } finally {
+        lock.releaseLock();
+      }
+    }
+
     const rows = [];
     for(let i = 0; i < n; i++){
       const r = vals[i];
@@ -267,7 +300,7 @@ function pullAll_(body){
         photo:     String(r[10] || "")
       });
     }
-    return json({ ok:true, team:team, count:rows.length, rows:rows });
+    return json({ ok:true, team:team, count:rows.length, backfilled:need.length, rows:rows });
   }catch(err){
     return json({ ok:false, error:String(err) });
   }
@@ -376,6 +409,25 @@ function toDate_(s){
 function pad3_(n){
   const s = String(n == null ? "" : n);
   return s.length >= 3 ? s : ("000" + s).slice(-3);
+}
+
+// [Phase 2] 셀이 '채워졌는지' 판정 (날짜·숫자는 채워진 것으로, 문자열은 trim 후 비교)
+function cellFilled_(v){
+  if(v === null || v === undefined) return false;
+  if(v instanceof Date) return true;
+  if(typeof v === "number") return true;
+  return String(v).trim() !== "";
+}
+
+// [Phase 2] '완성행' 판정: A·B·C·D·G·H 가 모두 채워졌는가 (E·F 는 수식, I·J 는 선택값이라 제외)
+function rowComplete_(r){
+  return cellFilled_(r[0]) && cellFilled_(r[1]) && cellFilled_(r[2]) &&
+         cellFilled_(r[3]) && cellFilled_(r[6]) && cellFilled_(r[7]);
+}
+
+// [Phase 2] 보정행용 id 생성 — 앱 id 형식과 호환(밀리초-랜덤), 끝에 'w'로 웹 보정 표시
+function makeBackfillId_(){
+  return String(Date.now()) + "-" + Math.random().toString(36).slice(2, 8) + "w";
 }
 
 // [Phase 2] M열(영수증번호) 현재 최대값 +1. 빈 시트면 1부터.
