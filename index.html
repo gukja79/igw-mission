@@ -97,6 +97,8 @@
   .syncbtn{padding:9px 16px; border:none; border-radius:10px; background:var(--bg2); color:#fff;
     font-size:14px; font-weight:700; cursor:pointer; white-space:nowrap}
   .syncbtn:disabled{opacity:.55}
+  .head-btns{display:flex; gap:8px}
+  .pullbtn{background:#fff; color:var(--bg2); border:1.5px solid var(--bg2)}
   #sync-status{font-size:12px; color:var(--muted); margin:0 2px 10px; min-height:14px}
   .item{border:1px solid var(--line); border-radius:14px; padding:12px; margin-bottom:10px}
   .item .top{display:flex; justify-content:space-between; align-items:flex-start; gap:8px}
@@ -112,6 +114,9 @@
   .bd-fail{background:var(--red); color:#fff}
   .bd-edit{background:var(--amb); color:#fff}
   .bd-del{background:#7f1d1d; color:#fff}
+  .bd-mirror{background:#fef3c7; color:#92400e; border:1px solid #f59e0b}
+  .sheet-photos{display:flex; flex-wrap:wrap; gap:8px}
+  .sheet-photo{display:inline-block; font-size:13px; font-weight:600; color:var(--blu); text-decoration:none; padding:4px 0}
   .item{cursor:pointer}
   .item .imgs{display:flex; gap:6px; margin-top:8px}
   .item .imgs img{width:52px; height:52px; border-radius:8px; object-fit:cover; border:1px solid var(--line)}
@@ -234,7 +239,10 @@
     <div id="view-list" class="card hidden">
       <div class="list-head">
         <div class="count" id="list-count"></div>
-        <button class="syncbtn" id="btn-sync">동기화</button>
+        <div class="head-btns">
+          <button class="syncbtn pullbtn" id="btn-pull">내려받기</button>
+          <button class="syncbtn" id="btn-sync">동기화</button>
+        </div>
       </div>
       <div id="sync-status"></div>
       <div id="list"></div>
@@ -568,6 +576,16 @@ function resetForm(){
 }
 
 /* 내역 목록 */
+// [Phase 2-4] 시트 사진 링크(K열, 여러 장이면 \n 구분) → '사진 보기' 링크 묶음
+function sheetPhotoLinks_(raw){
+  const urls = String(raw||"").split("\n").map(u=>u.trim()).filter(u=>/^https?:\/\//.test(u));
+  if(!urls.length) return `<div class="meta">사진 없음</div>`;
+  const links = urls.map((u,i)=>
+    `<a class="sheet-photo" href="${u}" target="_blank" rel="noopener">📎 사진 보기${urls.length>1?" "+(i+1):""}</a>`
+  ).join("");
+  return `<div class="meta sheet-photos">${links}</div>`;
+}
+
 async function renderList(){
   const all = (await getAll()).sort((a,b)=>b.createdAt-a.createdAt);
   const pend = all.filter(e=>e.syncState!=="완료").length;
@@ -613,8 +631,11 @@ async function renderList(){
         ${e.note?`<span class="bd bd-wait">${e.note}</span>`:""}
         ${stateBadge}
         ${e.photoFail?`<span class="bd bd-fail">⚠ 사진 실패</span>`:""}
+        ${e.mirrorFlag?`<span class="bd bd-mirror">⚠ ${e.mirrorFlag}</span>`:""}
       </div>
-      ${imgs?`<div class="imgs">${imgs}</div>`:`<div class="meta">사진 없음</div>`}
+      ${imgs ? `<div class="imgs">${imgs}</div>`
+              : (e.sheetPhoto ? sheetPhotoLinks_(e.sheetPhoto)
+                              : `<div class="meta">사진 없음</div>`)}
       ${showRephoto?`<button class="rephoto" data-id="${e.id}">사진 다시 올리기</button>`:""}
       <div class="tap-hint">탭하여 수정·삭제</div>`;
     box.appendChild(d);
@@ -1005,6 +1026,7 @@ function bind(){
   $("btn-save").onclick=save;
   $("btn-edit-cancel").onclick=()=>{ cancelEdit(); switchTab("list"); };
   $("btn-sync").onclick=()=>syncNow(true);
+  $("btn-pull").onclick=()=>pullNow(true);
   $("btn-rates").onclick=openRates;
   $("btn-rates-save").onclick=saveRates;
   $("btn-rates-close").onclick=()=>switchTab("input");
