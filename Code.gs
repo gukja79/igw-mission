@@ -122,9 +122,9 @@ function doPost(e){
       // E·F 환산 수식을 12행에서 복사해 내려 채움 (수입/지출 자동 분기)
       sh.getRange(FIRST_DATA_ROW, 5, 1, 2).copyTo(sh.getRange(row, 5, 1, 2));
 
-      // L열 id + M열 영수증번호
+      // L열 id + M열 영수증번호 (M은 숫자 서식 강제 — 날짜 서식 셀이면 3→날짜로 오인 방지)
       sh.getRange(row, ID_COL).setValue(String(entry.id));
-      sh.getRange(row, RECEIPTNO_COL).setValue(receiptNo);
+      sh.getRange(row, RECEIPTNO_COL).setValue(receiptNo).setNumberFormat("0");
 
       SpreadsheetApp.flush();   // 락 풀기 전에 기록 확정
     } finally {
@@ -265,8 +265,8 @@ function pullAll_(body){
           const i = need[k];
           if(cellFilled_(idCol[i][0])) continue;   // 그새 채워졌으면 건너뜀
           const newId = makeBackfillId_();
-          sh.getRange(FIRST_DATA_ROW + i, ID_COL).setValue(newId);            // L
-          sh.getRange(FIRST_DATA_ROW + i, RECEIPTNO_COL).setValue(nextNo);    // M
+          sh.getRange(FIRST_DATA_ROW + i, ID_COL).setValue(newId);                          // L
+          sh.getRange(FIRST_DATA_ROW + i, RECEIPTNO_COL).setValue(nextNo).setNumberFormat("0"); // M (숫자 서식 강제)
           vals[i][ID_COL - 1] = newId;             // 반환 JSON 에도 즉시 반영
           vals[i][RECEIPTNO_COL - 1] = nextNo;
           nextNo++;
@@ -285,8 +285,7 @@ function pullAll_(body){
       rows.push({
         row:       FIRST_DATA_ROW + i,
         id:        String(r[ID_COL - 1] || ""),
-        receiptNo: (r[RECEIPTNO_COL - 1] === "" || r[RECEIPTNO_COL - 1] == null)
-                     ? null : Number(r[RECEIPTNO_COL - 1]),
+        receiptNo: receiptNoOf_(r[RECEIPTNO_COL - 1]),  // M (Date 오염값은 null 처리)
         date:      fmtDate_(r[0], tz),
         account:   account,
         fund:      String(r[2] || ""),
@@ -315,6 +314,14 @@ function fmtDate_(v, tz){
 // [Phase 2] 숫자 셀 → 숫자 (빈칸/수식 "" 는 0)
 function num_(v){
   return (typeof v === "number") ? v : 0;
+}
+
+// [Phase 2] M열(영수증번호) 안전 변환: 빈칸/Date(과거 날짜서식 오염행) → null, 정상 숫자만 반환
+function receiptNoOf_(v){
+  if(v === "" || v == null) return null;
+  if(v instanceof Date) return null;           // 날짜로 오염된 값은 번호로 보지 않음
+  const n = Number(v);
+  return (isNaN(n) || n <= 0) ? null : n;
 }
 
 // L열에서 id 가 있는 행 찾기 (없으면 0)
