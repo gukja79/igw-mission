@@ -712,6 +712,151 @@ async function syncNow(manual){
   renderList();
   if(ok>0) toast(`동기화 ${ok}/${pending.length}건 완료`);
 }
+
+/* ===== Phase 2-4 (조각1): 내려받기 머지 코어 =====
+   pull → 시트 rows 를 IndexedDB 에 병합. 시트로 push 하지 않는다(읽기+로컬 병합만). */
+
+// 시트 row → 로컬 entry 형태로 변환 (type 은 krwIn/krwOut 으로 유추)
+function sheetRowToEntry_(r){
+  const isIncome = Number(r.krwIn) > 0;
+  return {
+    id: String(r.id),
+    team: team,
+    division: DIVISION,
+    type: isIncome ? "수입" : "지출",
+    account: r.account || "",
+    fund: r.fund || "",
+    date: r.date || "",
+    desc: r.desc || "",
+    currency: r.currency || "원화",
+    amount: Number(r.amount) || 0,
+    krw: isIncome ? (Number(r.krwIn) || null) : (Number(r.krwOut) || null),
+    note: r.note || "",
+    receipt: r.receipt || "",
+    receiptNo: (r.receiptNo == null ? null : r.receiptNo),
+    photos: [],
+    sheetPhoto: r.photo || "",
+    photoCount: 0,
+    syncState: "완료",
+    syncedRow: r.row,
+    createdAt: Date.now()
+  };
+}
+
+// 시트값으로 갱신: 회계 데이터만 덮고 로컬 사진(base64)·생성시각은 보존
+function applySheetValues_(local, r){
+  const isIncome = Number(r.krwIn) > 0;
+  local.type      = isIncome ? "수입" : "지출";
+  local.account   = r.account || "";
+  local.fund      = r.fund || "";
+  local.date      = r.date || "";
+  local.desc      = r.desc || "";
+  local.currency  = r.currency || "원화";
+  local.amount    = Number(r.amount) || 0;
+  local.krw       = isIncome ? (Number(r.krwIn) || null) : (Number(r.krwOut) || null);
+  local.note      = r.note || "";
+  local.receipt   = r.receipt || "";
+  local.receiptNo = (r.receiptNo == null ? null : r.receiptNo);
+  local.syncedRow = r.row;
+  if(r.photo) local.sheetPhoto = r.photo;
+  if(local.mirrorFlag) delete local.mirrorFlag;
+  return local;
+}
+
+// 시트 행 r 과 로컬 e 의 회계 값이 실질적으로 다른지(충돌 표시 판단용)
+function sheetDiffers_(e, r){
+  const isIncome = Number(r.krwIn) > 0;
+  const rType = isIncome ? "수입" : "지출";
+  return (e.account||"") !== (r.account||"") ||
+         (e.fund||"")    !== (r.fund||"")    ||
+         (e.date||"")    !== (r.date||"")    ||
+         (e.desc||"")    !== (r.desc||"")    ||
+         (e.currency||"")!== (r.currency||"")||
+         (Number(e.amount)||0) !== (Number(r.amount)||0) ||
+         (e.receipt||"") !== (r.receipt||"") ||
+         (e.note||"")    !== (r.note||"")    ||
+         (e.type||"")    !== rType;
+}
+
+// 핵심 머지 — 시트 rows 와 현재 IndexedDB 병합. {added,updated,kept,conflict,orphan} 반환
+async function mergeFromSheet_(rows){
+  const localAll = await getAll();
+  const byId = new Map(localAll.map(e=>[String(e.id), e]));
+  const sheetIds = new Set(rows.map(r=>String(r.id)).filter(Boolean));
+  const stat = { added:0, updated:0, kept:0, conflict:0, orphan:0 };
+
+  for(const r of rows){
+    const id = String(r.id||"");
+    if(!id) continue;
+    const local = byId.get(id);
+
+    if(!local){
+      await saveEntry(sheetRowToEntry_(r));
+      stat.added++;
+      continue;
+    }
+    const st = local.syncState || "대기";
+    if(st === "완료"){
+      await saveEntry(applySheetValues_(local, r));
+      stat.updated++;
+    } else {
+      if(sheetDiffers_(local, r)){
+        local.mirrorFlag = "시트와다름";
+        await saveEntry(local);
+        stat.conflict++;
+      } else {
+        if(local.mirrorFlag === "시트와다름"){ delete local.mirrorFlag; await saveEntry(local); }
+        stat.kept++;
+      }
+    }
+  }
+
+  for(const e of localAll){
+    const id = String(e.id||"");
+    if(sheetIds.has(id)) continue;
+    const st = e.syncState || "대기";
+    if(st === "완료"){
+      if(e.mirrorFlag !== "시트에없음"){ e.mirrorFlag = "시트에없음"; await saveEntry(e); }
+      stat.orphan++;
+    }
+  }
+
+  return stat;
+}
+
+// 내려받기 실행: pull → 머지 → 렌더. (조각1은 콘솔 테스트용; 버튼은 조각2)
+let pulling = false;
+async function pullNow(manual){
+  if(pulling || syncing) return null;
+  const cfg = SYNC[team];
+  if(!cfg || !cfg.url){ if(manual) toast("동기화 URL이 설정되지 않았어요"); return null; }
+  if(!navigator.onLine){ if(manual) toast("인터넷에 연결돼 있지 않아요"); return null; }
+
+  pulling = true;
+  try{
+    const res = await postAction(cfg, { secret:cfg.secret, action:"pull", team });
+    if(!res || !res.ok){ if(manual) toast("내려받기 실패: "+((res&&res.error)||"서버 오류")); return null; }
+    const stat = await mergeFromSheet_(res.rows || []);
+    await renderList();
+    console.log("[pullNow] merge stat:", stat, "rows:", (res.rows||[]).length);
+    if(manual){
+      const parts = [];
+      if(stat.added)    parts.push(`신규 ${stat.added}`);
+      if(stat.updated)  parts.push(`갱신 ${stat.updated}`);
+      if(stat.conflict) parts.push(`⚠충돌 ${stat.conflict}`);
+      if(stat.orphan)   parts.push(`⚠시트없음 ${stat.orphan}`);
+      toast(parts.length ? `내려받기: ${parts.join(" · ")}` : "내려받기: 변경 없음");
+    }
+    return stat;
+  }catch(err){
+    console.error("[pullNow]", err);
+    if(manual) toast("내려받기 중 오류 — 다시 시도하세요");
+    return null;
+  }finally{
+    pulling = false;
+  }
+}
+
 function setSyncing(on){
   const b=$("btn-sync"); if(!b) return;
   b.disabled=on; b.textContent = on ? "동기화 중…" : "동기화";
