@@ -103,6 +103,7 @@
   #sync-status{font-size:12px; color:var(--muted); margin:0 2px 10px; min-height:14px}
   .item{border:1px solid var(--line); border-radius:14px; padding:12px; margin-bottom:10px}
   .item .top{display:flex; justify-content:space-between; align-items:flex-start; gap:8px}
+  .item .top > .amt{margin-left:auto}
   .item .num{font-size:12px; color:var(--muted); font-weight:600}
   .item .acct{font-size:15px; font-weight:700; margin:2px 0}
   .item .desc{font-size:13px; color:var(--muted); margin-bottom:6px; word-break:break-all}
@@ -124,7 +125,17 @@
   .item .del{font-size:12px; color:#9ca3af; background:none; border:none; cursor:pointer; margin-top:8px; padding:0}
   .item .rephoto{font-size:12px; font-weight:700; color:var(--red); background:#fff; border:1px solid var(--red);
     border-radius:8px; padding:5px 10px; cursor:pointer; margin-top:8px; margin-right:10px}
-  .item .tap-hint{font-size:11px; color:#9ca3af; margin-top:8px}
+  .more-btn{flex:0 0 auto; align-self:flex-start; width:34px; height:34px; border:none; border-radius:8px;
+    background:var(--fill); color:var(--muted); font-size:20px; line-height:1; font-weight:700; cursor:pointer;
+    display:flex; align-items:center; justify-content:center; padding:0; margin-left:4px}
+  .more-btn:active{background:#e5e7eb}
+  .item .thumb{cursor:zoom-in}
+  /* 사진 크게 보기(라이트박스) */
+  .lightbox{position:fixed; inset:0; background:rgba(0,0,0,.9); z-index:1000;
+    display:flex; flex-direction:column; align-items:center; justify-content:center; gap:14px;
+    padding:20px; overflow:auto}
+  .lightbox img{max-width:96vw; max-height:88vh; object-fit:contain; border-radius:8px}
+  .lightbox .lb-hint{position:fixed; top:14px; right:16px; color:#fff; font-size:14px; font-weight:600; opacity:.85}
 
   /* 수정 모드 바 (입력 폼 상단) */
   #edit-bar{display:flex; align-items:center; justify-content:space-between; gap:8px;
@@ -604,9 +615,9 @@ async function renderList(){
     let amtMain, amtSub="";
     if(e.currency==="원화"){ amtMain = e.amount.toLocaleString()+"원"; }
     else { amtMain = `<span class="fx">${e.amount.toLocaleString()} ${curLabel(e.currency)}</span>`; if(e.krw!=null) amtSub = e.krw.toLocaleString()+"원"; }
-    const imgs = (e.photos||[]).map(p=>{
+    const imgs = (e.photos||[]).map((p,idx)=>{
       const src = (p instanceof Blob) ? URL.createObjectURL(p) : (p && p.b64 ? "data:image/jpeg;base64,"+p.b64 : "");
-      return src ? `<img src="${src}">` : "";
+      return src ? `<img class="thumb" data-id="${e.id}" data-idx="${idx}" src="${src}">` : "";
     }).join("");
     const s = e.syncState || "대기";
     const stateBadge =
@@ -624,6 +635,7 @@ async function renderList(){
           <div class="desc">${e.desc||"(내역 없음)"}</div>
         </div>
         <div class="amt">${amtMain}${amtSub?`<div class="amt-krw">${amtSub}</div>`:""}</div>
+        <button class="more-btn" data-id="${e.id}" aria-label="수정·삭제">⋯</button>
       </div>
       <div class="badges">
         <span class="bd ${e.type==="지출"?"bd-exp":"bd-inc"}">${e.type}</span>
@@ -637,8 +649,7 @@ async function renderList(){
       ${imgs ? `<div class="imgs">${imgs}</div>`
               : (e.sheetPhoto ? sheetPhotoLinks_(e.sheetPhoto)
                               : `<div class="meta">사진 없음</div>`)}
-      ${showRephoto?`<button class="rephoto" data-id="${e.id}">사진 다시 올리기</button>`:""}
-      <div class="tap-hint">탭하여 수정·삭제</div>`;
+      ${showRephoto?`<button class="rephoto" data-id="${e.id}">사진 다시 올리기</button>`:""}`;
     box.appendChild(d);
   });
 }
@@ -916,6 +927,23 @@ function cancelEdit(){
   $("btn-save").textContent = "저장";
 }
 
+// [Phase 2-4] 사진 크게 보기 — 앱 안 전체화면 오버레이. 아무 데나 탭하면 닫힘.
+function openLightbox(entry, startIdx){
+  const photos = (entry.photos||[]).filter(p=>p && (p.b64 || p instanceof Blob));
+  if(!photos.length) return;
+  const imgs = photos.map(p=>{
+    const src = (p instanceof Blob) ? URL.createObjectURL(p) : "data:image/jpeg;base64,"+p.b64;
+    return `<img src="${src}">`;
+  }).join("");
+  const box = document.createElement("div");
+  box.className = "lightbox";
+  box.innerHTML = `<div class="lb-hint">탭하면 닫기 ✕</div>${imgs}`;
+  box.addEventListener("click", ()=>box.remove());
+  document.body.appendChild(box);
+  const target = box.querySelectorAll("img")[startIdx||0];
+  if(target) target.scrollIntoView({ block:"center" });
+}
+
 async function openActionSheet(entry){
   actionTargetId = entry.id;
   const editBtn = $("act-edit");
@@ -1039,17 +1067,29 @@ function bind(){
     }
   };
   $("list").onclick=async e=>{
+    // 사진 다시 올리기
     if(e.target.classList.contains("rephoto")){
       rephotoTargetId = e.target.dataset.id;
       $("rephoto-input").click();
       return;
     }
-    const item = e.target.closest(".item");
-    if(item && item.dataset.id){
+    // 썸네일 탭 → 전체화면 크게 보기
+    const thumb = e.target.closest(".thumb");
+    if(thumb && thumb.dataset.id){
       const all = await getAll();
-      const entry = all.find(x=>x.id===item.dataset.id);
-      if(entry) openActionSheet(entry);
+      const entry = all.find(x=>x.id===thumb.dataset.id);
+      if(entry) openLightbox(entry, Number(thumb.dataset.idx)||0);
+      return;
     }
+    // ⋯ 더보기 → 수정·삭제 액션시트
+    const more = e.target.closest(".more-btn");
+    if(more && more.dataset.id){
+      const all = await getAll();
+      const entry = all.find(x=>x.id===more.dataset.id);
+      if(entry) openActionSheet(entry);
+      return;
+    }
+    // 카드 본체 탭은 아무 동작 안 함
   };
   $("rephoto-input").onchange = async ev => {
     const files = ev.target.files;
