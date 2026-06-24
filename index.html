@@ -87,7 +87,8 @@
   .krw{font-size:14px; font-weight:700; margin:8px 2px 0; min-height:18px}
   .krw.ok{color:var(--green)}
   .krw.warn{color:#b45309}
-  .amt-krw{font-size:12px; font-weight:600; color:var(--muted); margin-top:2px}
+  .amt-krw{font-size:17px; font-weight:700; color:var(--ink); margin-top:2px}
+  .amt .fx{font-size:17px; font-weight:400; color:var(--muted)}
 
   /* 내역 목록 */
   .empty{text-align:center; color:var(--muted); padding:40px 10px; font-size:15px; line-height:1.6}
@@ -602,7 +603,7 @@ async function renderList(){
   all.forEach(e=>{
     let amtMain, amtSub="";
     if(e.currency==="원화"){ amtMain = e.amount.toLocaleString()+"원"; }
-    else { amtMain = e.amount.toLocaleString()+" "+curLabel(e.currency); if(e.krw!=null) amtSub = "≈ "+e.krw.toLocaleString()+"원"; }
+    else { amtMain = `<span class="fx">${e.amount.toLocaleString()} ${curLabel(e.currency)}</span>`; if(e.krw!=null) amtSub = e.krw.toLocaleString()+"원"; }
     const imgs = (e.photos||[]).map(p=>{
       const src = (p instanceof Blob) ? URL.createObjectURL(p) : (p && p.b64 ? "data:image/jpeg;base64,"+p.b64 : "");
       return src ? `<img src="${src}">` : "";
