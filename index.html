@@ -1106,14 +1106,20 @@ async function pmgrDelete(fileId){
   if(!cfg || !cfg.url){ toast("동기화 URL이 설정되지 않았어요"); return; }
   const all = await getAll(); const e = all.find(x=>x.id===pmgrTargetId);
   if(!e) return;
+  const linksBefore = parseSheetLinks_(e.sheetPhoto);
+  const idx = linksBefore.findIndex(x => x.fileId === fileId);   // 삭제할 사진의 위치
   toast("사진 삭제하는 중…");
   const r = await postAction(cfg, { secret: cfg.secret, action: "deletePhoto",
     entry: { id: e.id, team }, fileId });
   if(r && r.ok){
     e.sheetPhoto = (typeof r.photo === "string") ? r.photo : (e.sheetPhoto || "");  // 시트 실제 상태 기준
-    const remain = parseSheetLinks_(e.sheetPhoto).length;
-    const localB64 = (e.photos || []).filter(p => p && p.b64);
-    if(localB64.length > remain){ e.photos = localB64.slice(0, remain); }            // 카드 썸네일 수 맞춤
+    const b64s = (e.photos || []).filter(p => p && p.b64);
+    if(idx >= 0 && b64s.length === linksBefore.length && e.photos){
+      e.photos.splice(idx, 1);                 // 같은 위치의 로컬 썸네일 1장만 제거
+    } else {
+      const remain = parseSheetLinks_(e.sheetPhoto).length;      // 못 짚으면 수만 맞춤(폴백)
+      if(b64s.length > remain) e.photos = b64s.slice(0, remain);
+    }
     await saveEntry(e); renderPhotoMgr(e); renderList();
     toast(r.removed > 0 ? "사진 삭제됨" : "⚠ 시트에서 링크를 못 찾음(삭제 0) — 알려주세요");
   } else { toast("사진 삭제 실패" + ((r && r.error) ? ": " + r.error : "")); }
