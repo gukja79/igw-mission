@@ -83,6 +83,8 @@ function doPost(e){
     if(body.action === "fxUpdate")         return fxUpdate_(body);
     if(body.action === "fxDelete")         return fxDelete_(body);
     if(body.action === "fxRenameCurrency") return fxRenameCurrency_(body);
+    if(body.action === "fxAddPhotos")      return fxAddPhotos_(body);
+    if(body.action === "fxDeletePhoto")    return fxDeletePhoto_(body);
 
     const entry = body.entry;
     if(!entry || !entry.id) return json({ ok:false, error:"빈 요청" });
@@ -729,6 +731,73 @@ function fxDelete_(body){
   }catch(err){
     return json({ ok:false, error:String(err) });
   }
+}
+
+// [§14-2단계] 환전 사진 추가 — G열 기존 링크 보존하고 새 사진 뒤에 append (원장 addPhotos_ 의 G열판)
+function fxAddPhotos_(body){
+  try{
+    const entry = body.entry || {};
+    if(!entry.id) return json({ ok:false, error:"빈 요청(환전 사진 추가)" });
+    const pics = entry.photos || body.photos || [];
+    if(!pics.length) return json({ ok:false, error:"추가할 사진이 없음" });
+
+    const { sh } = fxSheetOf_(entry.team);
+    const row = findRowById_(sh, entry.id, FX_FIRST_ROW, FX_ID_COL);
+    if(!row) return json({ ok:false, error:"원본 행을 찾을 수 없음 (먼저 동기화하세요)" });
+
+    const gCell = sh.getRange(row, FX_PHOTO_COL);
+    const existing = String(gCell.getValue() || "").split("\n").filter(s => s.trim() !== "");
+    const existingLinks = existing.filter(s => /\/d\/[A-Za-z0-9_-]{20,}/.test(s));   // 손상줄 제외
+
+    const folder = getFxFolder_(entry.team);
+    const aVal = sh.getRange(row, 1).getValue();
+    const dateStr = (aVal instanceof Date)
+      ? Utilities.formatDate(aVal, Session.getScriptTimeZone(), "yyyy-MM-dd")
+      : String(aVal || "nodate");
+    const fromC = String(sh.getRange(row, 2).getValue() || "").replace(/[\\/:*?"<>|]/g, "-");
+    const toC   = String(sh.getRange(row, 4).getValue() || "").replace(/[\\/:*?"<>|]/g, "-");
+    const base  = dateStr + "_" + fromC + "-" + toC;
+
+    const added = [];
+    let okN = 0, failN = 0;
+    for(let i = 0; i < pics.length; i++){
+      const b64  = (typeof pics[i] === "string") ? pics[i] : pics[i].data;
+      const want = (pics[i] && pics[i].size) ? Number(pics[i].size) : 0;
+      const bytes = Utilities.base64Decode(b64);
+      if(want && bytes.length !== want){ added.push("⚠ 사진 전송 손상(" + bytes.length + "/" + want + ")"); failN++; continue; }
+      const n  = existingLinks.length + okN + 1;
+      const nm = base + "_" + n + ".jpg";
+      const f  = folder.createFile(Utilities.newBlob(bytes, "image/jpeg", nm));
+      if(PHOTO_SHARE === "view"){ try{ f.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW); }catch(_){} }
+      added.push(f.getUrl());
+      okN++;
+    }
+    const merged = existing.concat(added).join("\n");
+    gCell.setValue(merged);
+    return json({ ok:true, team:entry.team, row:row, photos:okN, photoFail:failN, photo:merged });
+  }catch(err){ return json({ ok:false, error:String(err) }); }
+}
+
+// [§14-2단계] 환전 사진 단건 삭제 — 그 fileId만 휴지통 + G열에서 그 줄만 제거 (원장 deletePhoto_ 의 G열판)
+function fxDeletePhoto_(body){
+  try{
+    const entry  = body.entry || {};
+    const fileId = String(body.fileId || "");
+    if(!entry.id || !fileId) return json({ ok:false, error:"빈 요청(환전 사진 삭제)" });
+
+    const { sh } = fxSheetOf_(entry.team);
+    const row = findRowById_(sh, entry.id, FX_FIRST_ROW, FX_ID_COL);
+    if(!row) return json({ ok:false, error:"원본 행을 찾을 수 없음 (먼저 동기화하세요)" });
+
+    const gCell = sh.getRange(row, FX_PHOTO_COL);
+    const lines = String(gCell.getValue() || "").split("\n");
+    const kept  = lines.filter(ln => ln.indexOf(fileId) === -1);
+    const removed = lines.length - kept.length;
+    try{ DriveApp.getFileById(fileId).setTrashed(true); }catch(_){}
+    gCell.setValue(kept.join("\n"));
+    SpreadsheetApp.flush();
+    return json({ ok:true, team:entry.team, row:row, removed:removed, photo:kept.join("\n") });
+  }catch(err){ return json({ ok:false, error:String(err) }); }
 }
 
 // 통화명 일괄 갱신 — 환전내역 B·D(준/받은통화) + 보조표 J 라벨을 새 이름으로.

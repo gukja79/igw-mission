@@ -140,25 +140,25 @@
   .lightbox .lb-hint{position:fixed; top:14px; right:16px; color:#fff; font-size:14px; font-weight:600; opacity:.85}
 
   /* 수정 모드 바 (입력 폼 상단) */
-  #edit-bar{display:flex; align-items:center; justify-content:space-between; gap:8px;
+  #edit-bar, #fx-edit-bar{display:flex; align-items:center; justify-content:space-between; gap:8px;
     padding:10px 12px; background:#fef3c7; border:1px solid #f59e0b; border-radius:10px;
     font-size:13px; font-weight:600; color:#b45309; margin-bottom:8px}
-  #edit-bar button{padding:6px 12px; border:none; border-radius:8px; background:#fff;
+  #edit-bar button, #fx-edit-bar button{padding:6px 12px; border:none; border-radius:8px; background:#fff;
     color:var(--ink); font-size:12px; font-weight:700; cursor:pointer}
 
   /* 액션 시트 */
-  #action-sheet{position:fixed; inset:0; z-index:60; display:flex; align-items:flex-end; justify-content:center}
-  #action-sheet.hidden{display:none!important}
-  #sheet-backdrop{position:absolute; inset:0; background:rgba(0,0,0,.4)}
-  #action-sheet .sheet{position:relative; background:#fff; width:100%; max-width:480px;
+  #action-sheet, #fx-action-sheet{position:fixed; inset:0; z-index:60; display:flex; align-items:flex-end; justify-content:center}
+  #action-sheet.hidden, #fx-action-sheet.hidden{display:none!important}
+  #sheet-backdrop, #fx-sheet-backdrop{position:absolute; inset:0; background:rgba(0,0,0,.4)}
+  #action-sheet .sheet, #fx-action-sheet .sheet{position:relative; background:#fff; width:100%; max-width:480px;
     border-radius:18px 18px 0 0; padding:14px 14px calc(14px + env(safe-area-inset-bottom));
     box-shadow:0 -8px 30px rgba(0,0,0,.18)}
-  #action-sheet .sheet button{display:block; width:100%; margin:6px 0; padding:14px;
+  #action-sheet .sheet button, #fx-action-sheet .sheet button{display:block; width:100%; margin:6px 0; padding:14px;
     border:none; border-radius:12px; font-size:16px; font-weight:700; cursor:pointer}
-  #act-edit{background:var(--accent); color:#fff}
-  #act-edit.disabled{opacity:.4; pointer-events:none}
-  #act-delete{background:var(--red); color:#fff}
-  #act-cancel{background:var(--fill); color:var(--ink)}
+  #act-edit, #act-fx-edit{background:var(--accent); color:#fff}
+  #act-edit.disabled, #act-fx-edit.disabled{opacity:.4; pointer-events:none}
+  #act-delete, #act-fx-delete{background:var(--red); color:#fff}
+  #act-cancel, #act-fx-cancel{background:var(--fill); color:var(--ink)}
   .item .meta{font-size:12px; color:#9ca3af; margin-top:2px}
 
   /* 토스트 */
@@ -185,10 +185,10 @@
     opacity:.6; -webkit-user-select:text; user-select:text}
 
   /* 사진 관리 모달 */
-  #photo-mgr{position:fixed; inset:0; z-index:70; display:flex; align-items:flex-end; justify-content:center}
-  #photo-mgr.hidden{display:none!important}
-  #pmgr-backdrop{position:absolute; inset:0; background:rgba(0,0,0,.4)}
-  #photo-mgr .sheet{position:relative; background:#fff; width:100%; max-width:480px;
+  #photo-mgr, #fx-photo-mgr{position:fixed; inset:0; z-index:70; display:flex; align-items:flex-end; justify-content:center}
+  #photo-mgr.hidden, #fx-photo-mgr.hidden{display:none!important}
+  #pmgr-backdrop, #fx-pmgr-backdrop{position:absolute; inset:0; background:rgba(0,0,0,.4)}
+  #photo-mgr .sheet, #fx-photo-mgr .sheet{position:relative; background:#fff; width:100%; max-width:480px;
     border-radius:18px 18px 0 0; padding:16px 16px calc(env(safe-area-inset-bottom) + 16px)}
   .pmgr-ttl{font-size:17px; font-weight:700; text-align:center; margin:2px 0 10px}
   .pmgr-hint{font-size:12px; color:var(--amb); text-align:center; margin-bottom:8px}
@@ -326,6 +326,10 @@
       <div class="fx-rates" id="fx-rates"></div>
 
       <div class="ttl-sm" style="margin-top:20px">환전 입력</div>
+      <div id="fx-edit-bar" class="hidden">
+        <span>환전 수정 중</span>
+        <button type="button" id="btn-fx-edit-cancel">취소</button>
+      </div>
       <label class="fld">일자</label>
       <input type="date" id="fx-date">
 
@@ -392,6 +396,29 @@
     <button id="pmgr-close" class="pmgr-close">닫기</button>
   </div>
 </div>
+
+<!-- [§14-2단계] 환전 액션시트 / 사진 관리 (원장과 분리) -->
+<div id="fx-action-sheet" class="hidden">
+  <div id="fx-sheet-backdrop"></div>
+  <div class="sheet">
+    <button id="act-fx-edit">수정</button>
+    <button id="act-fx-delete">삭제</button>
+    <button id="act-fx-photos">사진 관리</button>
+    <button id="act-fx-cancel">취소</button>
+  </div>
+</div>
+
+<div id="fx-photo-mgr" class="hidden">
+  <div id="fx-pmgr-backdrop"></div>
+  <div class="sheet pmgr">
+    <div class="pmgr-ttl">환전 사진 관리</div>
+    <div id="fx-pmgr-hint" class="pmgr-hint"></div>
+    <div id="fx-pmgr-body" class="pmgr-body"></div>
+    <button id="fx-pmgr-add" class="pmgr-add">사진 추가</button>
+    <button id="fx-pmgr-close" class="pmgr-close">닫기</button>
+  </div>
+</div>
+<input type="file" id="fx-addphoto-input" accept="image/*" multiple class="hidden">
 
 <script>
 /* =====================================================================
@@ -469,6 +496,9 @@ let fxPhotos = [];           // [§14] 환전 입력 사진 [{blob,b64,size,url}
 let fxSyncing = false;       // 환전 동기화 진행 중
 let fxPulling = false;       // 환전 내려받기 진행 중
 let local2Name = "";         // [§14] 현지화2(경유 통화) 이름 — 회계가 1회 설정, 팀별 localStorage
+let editingFxId = null;      // [§14-2단계] 환전 수정 모드 대상 id
+let fxActionTargetId = null; // [§14-2단계] 환전 액션시트 대상 id
+let fxPmgrTargetId = null;   // [§14-2단계] 환전 사진관리 대상 id
 
 /* =====================================================================
    사진 압축 (찍는 순간 가볍게)
@@ -734,7 +764,7 @@ function renderFxPhotos(){
   });
 }
 
-// [§14] 환전 저장 (신규)
+// [§14] 환전 저장 (신규 / 수정 분기)
 async function fxSaveNew(){
   const fa=parseAmt($("fx-from-amt").value), ta=parseAmt($("fx-to-amt").value);
   if(!fa || !ta){ toast("준 금액과 받은 금액을 입력하세요"); return; }
@@ -742,21 +772,37 @@ async function fxSaveNew(){
   if(fc===tc){ toast("준 통화와 받은 통화가 같아요"); return; }
   $("btn-fx-save").disabled=true;
   try{
-    const entry={
-      id: Date.now()+"-"+Math.random().toString(36).slice(2,7)+"x",
-      team, date:$("fx-date").value,
-      fromCurrency:fc, fromAmount:fa,
-      toCurrency:tc, toAmount:ta,
-      memo:$("fx-memo").value.trim(),
-      photos: fxPhotos.map(p=>({ b64:p.b64, size:p.size })),
-      syncState:"대기", createdAt:Date.now()
-    };
-    await fxSave(entry);
-    fxResetForm();
-    toast("환전 저장됨");
-    await renderFxList();
-    if(navigator.onLine) setTimeout(()=>fxSyncNow(false), 300);
-  }catch(err){ toast("저장 실패 — 다시 시도하세요"); console.error(err); }
+    if(editingFxId){
+      // ----- 수정 -----
+      const all=await fxGetAll(); const e=all.find(x=>x.id===editingFxId);
+      if(!e){ toast("환전 내역을 찾을 수 없어요"); return; }
+      if(e.syncState==="삭제대기"){ toast("삭제 대기 항목은 수정할 수 없어요"); return; }
+      e.date=$("fx-date").value; e.fromCurrency=fc; e.fromAmount=fa;
+      e.toCurrency=tc; e.toAmount=ta; e.memo=$("fx-memo").value.trim();
+      if(e.syncState==="완료") e.syncState="수정대기";   // 대기/수정대기는 그대로
+      await fxSave(e);
+      cancelFxEdit();
+      await renderFxList();
+      toast("환전 수정됨");
+      if(navigator.onLine) setTimeout(()=>fxSyncNow(false), 300);
+    } else {
+      // ----- 신규 -----
+      const entry={
+        id: Date.now()+"-"+Math.random().toString(36).slice(2,7)+"x",
+        team, date:$("fx-date").value,
+        fromCurrency:fc, fromAmount:fa,
+        toCurrency:tc, toAmount:ta,
+        memo:$("fx-memo").value.trim(),
+        photos: fxPhotos.map(p=>({ b64:p.b64, size:p.size })),
+        syncState:"대기", createdAt:Date.now()
+      };
+      await fxSave(entry);
+      fxResetForm();
+      toast("환전 저장됨");
+      await renderFxList();
+      if(navigator.onLine) setTimeout(()=>fxSyncNow(false), 300);
+    }
+  }catch(err){ toast(editingFxId?"수정 실패 — 다시 시도하세요":"저장 실패 — 다시 시도하세요"); console.error(err); }
   finally{ $("btn-fx-save").disabled=false; }
 }
 function fxResetForm(){
@@ -764,6 +810,39 @@ function fxResetForm(){
   fxPhotos.forEach(p=>URL.revokeObjectURL(p.url)); fxPhotos=[]; renderFxPhotos();
   $("fx-date").value=todayStr();
   fxPreview();
+}
+// 저장된 통화값(코드 or 이름)을 드롭다운 코드로 역매핑 (내려받은 행은 이름으로 들어옴)
+function codeFromCurrency(v){
+  v=String(v||"");
+  if(v==="원화"||v==="달러"||v==="현지화1"||v==="현지화2") return v;   // 이미 코드
+  if(LOCAL1[team] && v===LOCAL1[team]) return "현지화1";
+  if(local2Name && v===local2Name)    return "현지화2";
+  return v;   // 원화·달러는 코드==이름이라 위에서 잡힘
+}
+// [§14-2단계] 환전 수정 모드 열기 (입력폼 재사용, 사진은 안 받음 — 사진은 '사진 관리'에서)
+function openFxEdit(entry){
+  editingFxId = entry.id;
+  fillCurrencies();
+  $("fx-date").value = entry.date || todayStr();
+  $("fx-from-cur").value = codeFromCurrency(entry.fromCurrency);
+  $("fx-to-cur").value   = codeFromCurrency(entry.toCurrency);
+  $("fx-from-amt").value = fmtAmtStr(entry.fromAmount);
+  $("fx-to-amt").value   = fmtAmtStr(entry.toAmount);
+  $("fx-memo").value     = entry.memo || "";
+  fxPhotos.forEach(p=>URL.revokeObjectURL(p.url)); fxPhotos=[]; renderFxPhotos();
+  $("fx-photo-section").classList.add("hidden");
+  $("fx-edit-bar").classList.remove("hidden");
+  $("btn-fx-save").textContent = "수정 저장";
+  fxPreview();
+  $("view-fx").scrollIntoView({ block:"start" });
+}
+function cancelFxEdit(){
+  if(editingFxId === null) return;
+  editingFxId = null;
+  fxResetForm();
+  $("fx-photo-section").classList.remove("hidden");
+  $("fx-edit-bar").classList.add("hidden");
+  $("btn-fx-save").textContent = "환전 저장";
 }
 
 function setType(t){
@@ -1239,6 +1318,15 @@ async function fxSyncNow(manual){
         r=await postAction(cfg, { action:"fxDelete", secret:cfg.secret, team:e.team, id:e.id });
         if(r && r.ok){ await fxDel(e.id); ok++; }
         else { toast("동기화 중단: "+((r&&r.error)||"서버 오류")); break; }
+      } else if(e.syncState==="수정대기"){
+        r=await postAction(cfg, { action:"fxUpdate", secret:cfg.secret, team:e.team, id:e.id,
+          date:e.date, fromCurrency:e.fromCurrency, fromAmount:e.fromAmount,
+          toCurrency:e.toCurrency, toAmount:e.toAmount, memo:e.memo });
+        if(r && r.ok){
+          if(r.missing){ await fxDel(e.id); }       // 시트에서 수동 삭제됨 → 유령 카드 정리
+          else { e.syncState="완료"; await fxSave(e); }
+          ok++;
+        } else { toast("동기화 중단: "+((r&&r.error)||"서버 오류")); break; }
       } else {
         r=await postAction(cfg, { action:"fxCreate", secret:cfg.secret, entry: fxSerialize_(e) });
         if(r && r.ok){ e.syncState="완료"; e.photoFail=(r.photoFail||0)>0; e.syncedRow=r.row; await fxSave(e); ok++; }
@@ -1316,6 +1404,7 @@ async function renderFxList(){
   all.forEach(e=>{
     const s=e.syncState||"대기";
     const badge = s==="완료" ? `<span class="bd bd-inc">● 완료</span>`
+      : s==="수정대기" ? `<span class="bd bd-edit">수정 대기</span>`
       : s==="삭제대기" ? `<span class="bd bd-del">삭제 대기</span>`
       : `<span class="bd bd-wait">● 대기</span>`;
     const imgs=(e.photos||[]).map(p=>{
@@ -1329,26 +1418,144 @@ async function renderFxList(){
           <div class="num">${e.date||"-"}</div>
           <div class="acct">${(e.fromAmount||0).toLocaleString()} ${curLabel_(e.fromCurrency)} <span class="fx-arrow">→</span> ${(e.toAmount||0).toLocaleString()} ${curLabel_(e.toCurrency)}</div>
         </div>
-        <button class="more-btn" data-fxid="${e.id}" aria-label="삭제">⋯</button>
+        <button class="more-btn" data-fxid="${e.id}" aria-label="수정·삭제·사진">⋯</button>
       </div>
-      <div class="badges">${badge}${e.mirrorFlag?`<span class="bd bd-mirror">⚠ ${e.mirrorFlag}</span>`:""}</div>
+      <div class="badges">${badge}${e.photoFail?`<span class="bd bd-fail">⚠ 사진 실패</span>`:""}${e.mirrorFlag?`<span class="bd bd-mirror">⚠ ${e.mirrorFlag}</span>`:""}</div>
       ${imgs ? `<div class="imgs">${imgs}</div>` : (e.sheetPhoto ? sheetPhotoLinks_(e.sheetPhoto) : "")}
       ${e.memo?`<div class="memo">📝 ${e.memo}</div>`:""}`;
     box.appendChild(d);
   });
 }
 
-// 환전 삭제 (완료→삭제대기 후 동기화 / 미동기화→즉시 제거)
+// 환전 삭제 (대기→즉시 제거 / 완료·수정대기→삭제대기 후 동기화. delete wins)
 async function fxDeleteCard(id){
   const all=await fxGetAll(); const e=all.find(x=>x.id===id); if(!e) return;
   if(!confirm("이 환전 내역을 삭제할까요?")) return;
-  if((e.syncState||"대기")==="완료"){
-    e.syncState="삭제대기"; await fxSave(e);
-    await renderFxList();
-    if(navigator.onLine) await fxSyncNow(false);
-  } else {
+  if((e.syncState||"대기")==="대기"){
     await fxDel(id); await renderFxList(); toast("삭제됨");
+  } else {
+    e.syncState="삭제대기"; await fxSave(e);   // 완료·수정대기 모두 삭제대기로
+    await renderFxList();
+    toast("삭제 대기 — 다음 동기화에서 시트도 삭제");
+    if(navigator.onLine) await fxSyncNow(false);
   }
+}
+
+/* =====================================================================
+   [§14-2단계] 환전 액션시트 / 수정 / 사진 관리 (원장과 분리)
+   ===================================================================== */
+function openFxActionSheet(entry){
+  fxActionTargetId = entry.id;
+  const editBtn=$("act-fx-edit");
+  if(entry.syncState==="삭제대기") editBtn.classList.add("disabled");
+  else editBtn.classList.remove("disabled");
+  $("fx-action-sheet").classList.remove("hidden");
+}
+function closeFxActionSheet(){ $("fx-action-sheet").classList.add("hidden"); fxActionTargetId=null; }
+async function fxDoEdit(){
+  if(!fxActionTargetId) return;
+  const all=await fxGetAll(); const e=all.find(x=>x.id===fxActionTargetId);
+  if(!e || e.syncState==="삭제대기"){ closeFxActionSheet(); return; }
+  closeFxActionSheet();
+  openFxEdit(e);
+}
+async function fxDoDelete(){
+  if(!fxActionTargetId) return;
+  const id=fxActionTargetId; closeFxActionSheet();
+  await fxDeleteCard(id);
+}
+async function fxDoPhotos(){
+  if(!fxActionTargetId) return;
+  const all=await fxGetAll(); const e=all.find(x=>x.id===fxActionTargetId);
+  closeFxActionSheet();
+  if(e) openFxPhotoMgr(e);
+}
+
+// 환전 사진 관리 — 동기화된(완료) 항목의 G열 사진을 추가/단건삭제 (원장 photo-mgr 의 환전판)
+async function openFxPhotoMgr(entry){
+  if(entry.syncState!=="완료"){ toast("먼저 동기화한 뒤 사진을 관리할 수 있어요"); return; }
+  fxPmgrTargetId = entry.id;
+  $("fx-pmgr-hint").textContent="";
+  $("fx-pmgr-body").innerHTML=`<div class="pmgr-empty">사진 불러오는 중…</div>`;
+  $("fx-photo-mgr").classList.remove("hidden");
+  if(navigator.onLine){
+    const cfg=SYNC[team];
+    if(cfg && cfg.url){
+      try{
+        const r=await postAction(cfg, { secret:cfg.secret, action:"fxPull", team });
+        if(r && r.ok && Array.isArray(r.rows)){
+          const mine=r.rows.find(x=>String(x.id)===String(entry.id));
+          if(mine){ entry.sheetPhoto=mine.photo||""; await fxSave(entry); }
+        }
+      }catch(_){}
+    }
+  }
+  if(fxPmgrTargetId===entry.id) renderFxPhotoMgr(entry);
+}
+function closeFxPhotoMgr(){ $("fx-photo-mgr").classList.add("hidden"); fxPmgrTargetId=null; }
+function renderFxPhotoMgr(entry){
+  const links=parseSheetLinks_(entry.sheetPhoto);
+  const b64s=(entry.photos||[]).filter(p=>p && p.b64).map(p=>p.b64);
+  const aligned=b64s.length===links.length;
+  const online=navigator.onLine;
+  const body=$("fx-pmgr-body");
+  if(!links.length){ body.innerHTML=`<div class="pmgr-empty">아직 사진이 없어요.</div>`; }
+  else {
+    body.innerHTML=links.map((lk,i)=>{
+      const thumb=aligned
+        ? `<img class="pmgr-thumb" src="data:image/jpeg;base64,${b64s[i]}" onerror="imgBroken(this)">`
+        : `<a class="pmgr-open" href="${lk.url}" target="_blank" rel="noopener">📎 사진 ${i+1}</a>`;
+      return `<div class="pmgr-row">${thumb}<button class="pmgr-del" data-fileid="${lk.fileId}">삭제</button></div>`;
+    }).join("");
+  }
+  $("fx-pmgr-add").classList.toggle("disabled", !online);
+  $("fx-pmgr-hint").textContent = online ? "" : "⚠ 사진 추가·삭제는 인터넷 연결이 필요해요";
+}
+async function fxPmgrAdd(files){
+  if(!fxPmgrTargetId) return;
+  if(!navigator.onLine){ toast("인터넷에 연결돼 있지 않아요"); return; }
+  const cfg=SYNC[team];
+  if(!cfg || !cfg.url){ toast("동기화 URL이 설정되지 않았어요"); return; }
+  const all=await fxGetAll(); const e=all.find(x=>x.id===fxPmgrTargetId);
+  if(!e) return;
+  toast("사진 추가하는 중…");
+  const newPhotos=[]; let skipped=0;
+  for(const f of files){
+    const blob=await compress(f); if(!blob){ skipped++; continue; }
+    const b64=await blobToB64(blob); if(!b64){ skipped++; continue; }
+    newPhotos.push({ b64, size:blob.size });
+  }
+  if(!newPhotos.length){ toast("추가할 사진이 없어요"); return; }
+  const r=await postAction(cfg, { secret:cfg.secret, action:"fxAddPhotos",
+    entry:{ id:e.id, team, photos:newPhotos.map(p=>({ data:p.b64, size:p.size })) } });
+  if(r && r.ok){
+    e.sheetPhoto=r.photo||e.sheetPhoto;
+    e.photos=(e.photos||[]).concat(newPhotos);
+    e.photoFail=(r.photoFail||0)>0;
+    await fxSave(e); renderFxPhotoMgr(e); renderFxList();
+    toast(skipped ? `사진 ${newPhotos.length}장 추가 (${skipped}장 제외)` : "사진 추가됨");
+  } else { toast("사진 추가 실패"+((r&&r.error)?": "+r.error:"")); }
+}
+async function fxPmgrDelete(fileId){
+  if(!fxPmgrTargetId || !fileId) return;
+  if(!navigator.onLine){ toast("인터넷에 연결돼 있지 않아요"); return; }
+  if(!confirm("이 사진을 삭제할까요?")) return;
+  const cfg=SYNC[team];
+  if(!cfg || !cfg.url){ toast("동기화 URL이 설정되지 않았어요"); return; }
+  const all=await fxGetAll(); const e=all.find(x=>x.id===fxPmgrTargetId);
+  if(!e) return;
+  const linksBefore=parseSheetLinks_(e.sheetPhoto);
+  const idx=linksBefore.findIndex(x=>x.fileId===fileId);
+  toast("사진 삭제하는 중…");
+  const r=await postAction(cfg, { secret:cfg.secret, action:"fxDeletePhoto", entry:{ id:e.id, team }, fileId });
+  if(r && r.ok){
+    e.sheetPhoto=(typeof r.photo==="string") ? r.photo : (e.sheetPhoto||"");
+    const b64s=(e.photos||[]).filter(p=>p && p.b64);
+    if(idx>=0 && b64s.length===linksBefore.length && e.photos){ e.photos.splice(idx,1); }
+    else { const remain=parseSheetLinks_(e.sheetPhoto).length; if(b64s.length>remain) e.photos=b64s.slice(0,remain); }
+    await fxSave(e); renderFxPhotoMgr(e); renderFxList();
+    toast(r.removed>0 ? "사진 삭제됨" : "⚠ 시트에서 링크를 못 찾음(삭제 0) — 알려주세요");
+  } else { toast("사진 삭제 실패"+((r&&r.error)?": "+r.error:"")); }
 }
 
 /* =====================================================================
@@ -1622,7 +1829,8 @@ function bind(){
   $("f-amount").oninput=()=>{ fmtAmountInput($("f-amount")); updatePreview(); };
   $("f-currency").onchange=updatePreview;
   // [§14] 환전 화면
-  $("btn-fx-close").onclick=()=>switchTab("input");
+  $("btn-fx-close").onclick=()=>{ cancelFxEdit(); switchTab("input"); };
+  $("btn-fx-edit-cancel").onclick=cancelFxEdit;
   $("btn-fx-save").onclick=fxSaveNew;
   $("btn-fx-sync").onclick=()=>fxSyncNow(true);
   $("btn-fx-pull").onclick=()=>fxRefresh(true);
@@ -1638,10 +1846,32 @@ function bind(){
       const i=+e.target.dataset.i; URL.revokeObjectURL(fxPhotos[i].url); fxPhotos.splice(i,1); renderFxPhotos();
     }
   };
-  $("fx-list").onclick=e=>{
+  $("fx-list").onclick=async e=>{
     const more=e.target.closest(".more-btn");
-    if(more && more.dataset.fxid){ fxDeleteCard(more.dataset.fxid); return; }
+    if(more && more.dataset.fxid){
+      const all=await fxGetAll(); const en=all.find(x=>x.id===more.dataset.fxid);
+      if(en) openFxActionSheet(en); return;
+    }
+    const thumb=e.target.closest(".thumb");
+    if(thumb){
+      const card=thumb.closest(".item");
+      if(card && card.dataset.fxid){
+        const all=await fxGetAll(); const en=all.find(x=>x.id===card.dataset.fxid);
+        if(en) openLightbox(en, 0);
+      }
+    }
   };
+  // [§14-2단계] 환전 액션시트 / 사진 관리
+  $("act-fx-edit").onclick   = fxDoEdit;
+  $("act-fx-delete").onclick = fxDoDelete;
+  $("act-fx-photos").onclick = fxDoPhotos;
+  $("act-fx-cancel").onclick = closeFxActionSheet;
+  $("fx-sheet-backdrop").onclick = closeFxActionSheet;
+  $("fx-addphoto-input").onchange = async ev => { const files=ev.target.files; if(files.length) await fxPmgrAdd(files); ev.target.value=""; };
+  $("fx-pmgr-add").onclick = () => { if($("fx-pmgr-add").classList.contains("disabled")){ toast("인터넷에 연결돼 있지 않아요"); return; } $("fx-addphoto-input").click(); };
+  $("fx-pmgr-body").onclick = ev => { const del=ev.target.closest(".pmgr-del"); if(del && del.dataset.fileid) fxPmgrDelete(del.dataset.fileid); };
+  $("fx-pmgr-close").onclick = closeFxPhotoMgr;
+  $("fx-pmgr-backdrop").onclick = closeFxPhotoMgr;
   $("photos").onclick=e=>{
     if(e.target.classList.contains("thumb-x")){
       const i=+e.target.dataset.i; URL.revokeObjectURL(photos[i].url); photos.splice(i,1); renderPhotos();
