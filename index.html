@@ -282,7 +282,7 @@
       <select id="f-currency"></select>
 
       <label class="fld">사용 금액</label>
-      <input type="number" id="f-amount" inputmode="decimal" placeholder="0">
+      <input type="text" id="f-amount" inputmode="decimal" placeholder="0" autocomplete="off">
       <div id="krw-preview" class="krw"></div>
 
       <label class="fld">비고</label>
@@ -332,13 +332,13 @@
       <label class="fld">준 통화 / 금액</label>
       <div class="row2">
         <div><select id="fx-from-cur"></select></div>
-        <div><input type="number" id="fx-from-amt" inputmode="decimal" placeholder="0"></div>
+        <div><input type="text" id="fx-from-amt" inputmode="decimal" placeholder="0" autocomplete="off"></div>
       </div>
 
       <label class="fld">받은 통화 / 금액</label>
       <div class="row2">
         <div><select id="fx-to-cur"></select></div>
-        <div><input type="number" id="fx-to-amt" inputmode="decimal" placeholder="0"></div>
+        <div><input type="text" id="fx-to-amt" inputmode="decimal" placeholder="0" autocomplete="off"></div>
       </div>
       <div id="fx-preview" class="krw"></div>
 
@@ -536,6 +536,31 @@ function todayStr(){
   return `${d.getFullYear()}-${p(d.getMonth()+1)}-${p(d.getDate())}`;
 }
 
+// 금액 입력 — 표시는 천단위 콤마, 값은 숫자. (시트는 별도 콤마 서식이라 저장은 순수 숫자)
+function parseAmt(v){ return Number(String(v==null?"":v).replace(/,/g,"")) || 0; }
+function fmtAmtStr(v){   // 숫자/문자 → "1,000" / "1,000.5" (수정 모드 값 채울 때)
+  if(v==null || v==="") return "";
+  const s=String(v).replace(/,/g,"");
+  const dot=s.indexOf(".");
+  if(dot===-1) return (Number(s)||0).toLocaleString("en-US");
+  const intp=s.slice(0,dot), frac=s.slice(dot+1);
+  return ((Number(intp)||0).toLocaleString("en-US"))+"."+frac;
+}
+// 입력 중 라이브 포맷 (숫자·소수점만 허용, 정수부에 콤마)
+function fmtAmountInput(el){
+  let v=el.value.replace(/[^\d.]/g,"");
+  const i=v.indexOf(".");
+  if(i!==-1) v=v.slice(0,i+1)+v.slice(i+1).replace(/\./g,"");   // 점 하나만
+  if(v===""){ el.value=""; return; }
+  if(v==="."){ el.value="0."; return; }
+  let intp=v, frac=null;
+  const dot=v.indexOf(".");
+  if(dot!==-1){ intp=v.slice(0,dot); frac=v.slice(dot+1); }
+  intp=intp.replace(/^0+(?=\d)/,"");                            // 선행 0 제거
+  const intFmt=intp ? Number(intp).toLocaleString("en-US") : "0";
+  el.value = (frac===null) ? intFmt : intFmt+"."+frac;
+}
+
 function fillAccounts(){
   const s=$("f-account"); s.innerHTML="";
   ACCOUNTS[type].forEach(a=>{ const o=document.createElement("option"); o.value=a; o.textContent=a; s.appendChild(o); });
@@ -582,7 +607,7 @@ function fillCurrencies(){
 }
 function updatePreview(){
   const el=$("krw-preview"); if(!el) return;
-  const cur=$("f-currency").value, amt=Number($("f-amount").value||0);
+  const cur=$("f-currency").value, amt=parseAmt($("f-amount").value);
   if(!amt){ el.textContent=""; el.className="krw"; return; }
   if(cur==="원화"){ el.textContent=`= ${Math.round(amt).toLocaleString()}원`; el.className="krw ok"; return; }
   const c=rateCfg[cur];
@@ -672,7 +697,7 @@ async function setLocal2NamePrompt(){
 // [§14] 환전 입력 미리보기 — 이번 거래 기준 단순 환율(참고용)
 function fxPreview(){
   const el=$("fx-preview"); if(!el) return;
-  const fa=Number($("fx-from-amt").value||0), ta=Number($("fx-to-amt").value||0);
+  const fa=parseAmt($("fx-from-amt").value), ta=parseAmt($("fx-to-amt").value);
   const fc=$("fx-from-cur").value, tc=$("fx-to-cur").value;
   if(!fa||!ta){ el.textContent=""; el.className="krw"; return; }
   if(fc==="원화" && tc!=="원화"){
@@ -711,7 +736,7 @@ function renderFxPhotos(){
 
 // [§14] 환전 저장 (신규)
 async function fxSaveNew(){
-  const fa=$("fx-from-amt").value.trim(), ta=$("fx-to-amt").value.trim();
+  const fa=parseAmt($("fx-from-amt").value), ta=parseAmt($("fx-to-amt").value);
   if(!fa || !ta){ toast("준 금액과 받은 금액을 입력하세요"); return; }
   const fc=$("fx-from-cur").value, tc=$("fx-to-cur").value;
   if(fc===tc){ toast("준 통화와 받은 통화가 같아요"); return; }
@@ -720,8 +745,8 @@ async function fxSaveNew(){
     const entry={
       id: Date.now()+"-"+Math.random().toString(36).slice(2,7)+"x",
       team, date:$("fx-date").value,
-      fromCurrency:fc, fromAmount:Number(fa),
-      toCurrency:tc, toAmount:Number(ta),
+      fromCurrency:fc, fromAmount:fa,
+      toCurrency:tc, toAmount:ta,
       memo:$("fx-memo").value.trim(),
       photos: fxPhotos.map(p=>({ b64:p.b64, size:p.size })),
       syncState:"대기", createdAt:Date.now()
@@ -791,14 +816,14 @@ function renderPhotos(){
 
 /* 저장 (신규/수정 분기) */
 async function save(){
-  const amount = $("f-amount").value.trim();
+  const amount = parseAmt($("f-amount").value);
   if(!amount){ toast("사용 금액을 입력하세요"); return; }
 
   $("btn-save").disabled=true;
   const curKey = $("f-currency").value;
   let krw = null;
-  if(curKey==="원화") krw = Math.round(Number(amount));
-  else if(rateCfg[curKey] && rateCfg[curKey].rate) krw = Math.round(Number(amount)*rateCfg[curKey].rate);
+  if(curKey==="원화") krw = Math.round(amount);
+  else if(rateCfg[curKey] && rateCfg[curKey].rate) krw = Math.round(amount*rateCfg[curKey].rate);
 
   try{
     if(editingId){
@@ -1337,7 +1362,7 @@ function openEdit(entry){
   $("f-date").value = entry.date || todayStr();
   $("f-desc").value = entry.desc || "";
   $("f-currency").value = entry.currency || "원화";
-  $("f-amount").value = entry.amount;
+  $("f-amount").value = fmtAmtStr(entry.amount);
   $("f-note").value = entry.note || "";
   setReceipt(entry.receipt || "O");
   // 입력 폼의 새 사진 버퍼는 비움 (편집 모드에선 사진을 안 받음)
@@ -1594,14 +1619,15 @@ function bind(){
   $("btn-sync").onclick=()=>syncNow(true);
   $("btn-pull").onclick=()=>pullNow(true);
   $("btn-rates").onclick=openFx;
-  $("f-amount").oninput=updatePreview;
+  $("f-amount").oninput=()=>{ fmtAmountInput($("f-amount")); updatePreview(); };
   $("f-currency").onchange=updatePreview;
   // [§14] 환전 화면
   $("btn-fx-close").onclick=()=>switchTab("input");
   $("btn-fx-save").onclick=fxSaveNew;
   $("btn-fx-sync").onclick=()=>fxSyncNow(true);
   $("btn-fx-pull").onclick=()=>fxRefresh(true);
-  $("fx-from-amt").oninput=fxPreview; $("fx-to-amt").oninput=fxPreview;
+  $("fx-from-amt").oninput=()=>{ fmtAmountInput($("fx-from-amt")); fxPreview(); };
+  $("fx-to-amt").oninput=()=>{ fmtAmountInput($("fx-to-amt")); fxPreview(); };
   $("fx-from-cur").onchange=fxPreview; $("fx-to-cur").onchange=fxPreview;
   $("fx-rates").onclick=e=>{
     if(e.target.id==="fx-l2-set" || e.target.id==="fx-l2-edit") setLocal2NamePrompt();
