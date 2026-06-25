@@ -183,6 +183,28 @@
   /* 버전 배지 (운영자 디버깅용 — 활성 sw 캐시 버전 표시) */
   .appver{margin-top:16px; text-align:center; font-size:11px; color:var(--muted);
     opacity:.6; -webkit-user-select:text; user-select:text}
+
+  /* 사진 관리 모달 */
+  #photo-mgr{position:fixed; inset:0; z-index:70; display:flex; align-items:flex-end; justify-content:center}
+  #photo-mgr.hidden{display:none!important}
+  #pmgr-backdrop{position:absolute; inset:0; background:rgba(0,0,0,.4)}
+  #photo-mgr .sheet{position:relative; background:#fff; width:100%; max-width:480px;
+    border-radius:18px 18px 0 0; padding:16px 16px calc(env(safe-area-inset-bottom) + 16px)}
+  .pmgr-ttl{font-size:17px; font-weight:700; text-align:center; margin:2px 0 10px}
+  .pmgr-hint{font-size:12px; color:var(--amb); text-align:center; margin-bottom:8px}
+  .pmgr-body{display:flex; flex-direction:column; gap:10px; max-height:50vh; overflow:auto; margin-bottom:12px}
+  .pmgr-empty{font-size:14px; color:var(--muted); text-align:center; padding:16px 0}
+  .pmgr-row{display:flex; align-items:center; justify-content:space-between; gap:12px;
+    border:1px solid var(--line); border-radius:12px; padding:8px 10px}
+  .pmgr-thumb{width:56px; height:56px; object-fit:cover; border-radius:8px; border:1px solid var(--line)}
+  .pmgr-open{font-size:14px; font-weight:600; color:var(--blu); text-decoration:none}
+  .pmgr-del{background:var(--red-bg); color:var(--red); border:none; border-radius:10px;
+    padding:8px 14px; font-size:14px; font-weight:700; cursor:pointer}
+  .pmgr-add{display:block; width:100%; padding:14px; border:none; border-radius:12px;
+    background:var(--accent); color:#fff; font-size:15px; font-weight:700; cursor:pointer}
+  .pmgr-add.disabled{opacity:.5}
+  .pmgr-close{display:block; width:100%; margin-top:8px; padding:12px; border:none; border-radius:12px;
+    background:var(--fill); color:var(--ink); font-size:14px; font-weight:600; cursor:pointer}
 </style>
 </head>
 <body>
@@ -277,6 +299,7 @@
       <div id="sync-status"></div>
       <div id="list"></div>
       <input type="file" id="rephoto-input" accept="image/*" multiple class="hidden">
+      <input type="file" id="addphoto-input" accept="image/*" multiple class="hidden">
     </div>
 
     <!-- 환율 설정 화면 -->
@@ -302,8 +325,20 @@
   <div id="sheet-backdrop"></div>
   <div class="sheet">
     <button id="act-edit">수정</button>
+    <button id="act-photos">사진 관리</button>
     <button id="act-delete">삭제</button>
     <button id="act-cancel">취소</button>
+  </div>
+</div>
+
+<div id="photo-mgr" class="hidden">
+  <div id="pmgr-backdrop"></div>
+  <div class="sheet pmgr">
+    <div class="pmgr-ttl">사진 관리</div>
+    <div id="pmgr-hint" class="pmgr-hint"></div>
+    <div id="pmgr-body" class="pmgr-body"></div>
+    <button id="pmgr-add" class="pmgr-add">사진 추가</button>
+    <button id="pmgr-close" class="pmgr-close">닫기</button>
   </div>
 </div>
 
@@ -983,6 +1018,92 @@ function closeActionSheet(){
   $("action-sheet").classList.add("hidden");
   actionTargetId = null;
 }
+
+/* [Phase 3] 사진 관리 — 동기화된(완료) 항목의 K열 사진을 추가/단건삭제 */
+let pmgrTargetId = null;
+function parseSheetLinks_(raw){
+  return String(raw||"").split("\n").map(s=>s.trim())
+    .filter(s=>/^https?:\/\//.test(s))
+    .map(u=>{ const m = u.match(/\/d\/([A-Za-z0-9_-]{20,})/); return { url:u, fileId: m?m[1]:"" }; })
+    .filter(x=>x.fileId);
+}
+async function doPhotosAction(){
+  if(!actionTargetId) return;
+  const all = await getAll(); const e = all.find(x=>x.id===actionTargetId);
+  closeActionSheet();
+  if(e) openPhotoMgr(e);
+}
+async function openPhotoMgr(entry){
+  if(entry.syncState !== "완료"){ toast("먼저 동기화한 뒤 사진을 관리할 수 있어요"); return; }
+  pmgrTargetId = entry.id;
+  renderPhotoMgr(entry);
+  $("photo-mgr").classList.remove("hidden");
+}
+function closePhotoMgr(){ $("photo-mgr").classList.add("hidden"); pmgrTargetId = null; }
+function renderPhotoMgr(entry){
+  const links = parseSheetLinks_(entry.sheetPhoto);
+  const b64s = (entry.photos||[]).filter(p=>p && p.b64).map(p=>p.b64);
+  const aligned = b64s.length === links.length;
+  const online = navigator.onLine;
+  const body = $("pmgr-body");
+  if(!links.length){ body.innerHTML = `<div class="pmgr-empty">아직 사진이 없어요.</div>`; }
+  else {
+    body.innerHTML = links.map((lk,i)=>{
+      const thumb = aligned
+        ? `<img class="pmgr-thumb" src="data:image/jpeg;base64,${b64s[i]}" onerror="imgBroken(this)">`
+        : `<a class="pmgr-open" href="${lk.url}" target="_blank" rel="noopener">📎 사진 ${i+1}</a>`;
+      return `<div class="pmgr-row">${thumb}<button class="pmgr-del" data-fileid="${lk.fileId}">삭제</button></div>`;
+    }).join("");
+  }
+  $("pmgr-add").classList.toggle("disabled", !online);
+  $("pmgr-hint").textContent = online ? "" : "⚠ 사진 추가·삭제는 인터넷 연결이 필요해요";
+}
+async function pmgrAdd(files){
+  if(!pmgrTargetId) return;
+  if(!navigator.onLine){ toast("인터넷에 연결돼 있지 않아요"); return; }
+  const cfg = SYNC[team];
+  if(!cfg || !cfg.url){ toast("동기화 URL이 설정되지 않았어요"); return; }
+  const all = await getAll(); const e = all.find(x=>x.id===pmgrTargetId);
+  if(!e) return;
+  toast("사진 추가하는 중…");
+  const newPhotos = []; let skipped = 0;
+  for(const f of files){
+    const blob = await compress(f); if(!blob){ skipped++; continue; }
+    const b64 = await blobToB64(blob); if(!b64){ skipped++; continue; }
+    newPhotos.push({ b64, size: blob.size });
+  }
+  if(!newPhotos.length){ toast("추가할 사진이 없어요"); return; }
+  const r = await postAction(cfg, { secret: cfg.secret, action: "addPhotos",
+    entry: { id: e.id, team, photos: newPhotos.map(p=>({ data:p.b64, size:p.size })) } });
+  if(r && r.ok){
+    e.sheetPhoto = r.photo || e.sheetPhoto;
+    e.photos = (e.photos||[]).concat(newPhotos);
+    e.photoFail = (r.photoFail||0) > 0;
+    await saveEntry(e); renderPhotoMgr(e); renderList();
+    toast(skipped ? `사진 ${newPhotos.length}장 추가 (${skipped}장 제외)` : "사진 추가됨");
+  } else { toast("사진 추가 실패" + ((r&&r.error)?": "+r.error:"")); }
+}
+async function pmgrDelete(fileId){
+  if(!pmgrTargetId || !fileId) return;
+  if(!navigator.onLine){ toast("인터넷에 연결돼 있지 않아요"); return; }
+  if(!confirm("이 사진을 삭제할까요?")) return;
+  const cfg = SYNC[team];
+  if(!cfg || !cfg.url){ toast("동기화 URL이 설정되지 않았어요"); return; }
+  const all = await getAll(); const e = all.find(x=>x.id===pmgrTargetId);
+  if(!e) return;
+  const linksBefore = parseSheetLinks_(e.sheetPhoto);
+  const idx = linksBefore.findIndex(x=>x.fileId===fileId);
+  toast("사진 삭제하는 중…");
+  const r = await postAction(cfg, { secret: cfg.secret, action: "deletePhoto",
+    entry: { id: e.id, team }, fileId });
+  if(r && r.ok){
+    e.sheetPhoto = r.photo || "";
+    const b64s = (e.photos||[]).filter(p=>p && p.b64);
+    if(idx >= 0 && b64s.length === linksBefore.length && e.photos){ e.photos.splice(idx, 1); }
+    await saveEntry(e); renderPhotoMgr(e); renderList();
+    toast("사진 삭제됨");
+  } else { toast("사진 삭제 실패" + ((r&&r.error)?": "+r.error:"")); }
+}
 async function doEditAction(){
   if(!actionTargetId) return;
   const all = await getAll();
@@ -1130,6 +1251,22 @@ function bind(){
   $("act-delete").onclick = doDeleteAction;
   $("act-cancel").onclick = closeActionSheet;
   $("sheet-backdrop").onclick = closeActionSheet;
+  $("act-photos").onclick = doPhotosAction;
+  $("addphoto-input").onchange = async ev => {
+    const files = ev.target.files;
+    if(files.length) await pmgrAdd(files);
+    ev.target.value = "";
+  };
+  $("pmgr-add").onclick = () => {
+    if($("pmgr-add").classList.contains("disabled")){ toast("인터넷에 연결돼 있지 않아요"); return; }
+    $("addphoto-input").click();
+  };
+  $("pmgr-body").onclick = ev => {
+    const del = ev.target.closest(".pmgr-del");
+    if(del && del.dataset.fileid) pmgrDelete(del.dataset.fileid);
+  };
+  $("pmgr-close").onclick = closePhotoMgr;
+  $("pmgr-backdrop").onclick = closePhotoMgr;
 }
 
 /* =====================================================================
