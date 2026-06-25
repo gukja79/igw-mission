@@ -130,6 +130,7 @@
     display:flex; align-items:center; justify-content:center; padding:0; margin-left:4px}
   .more-btn:active{background:#e5e7eb}
   .item .thumb{cursor:zoom-in}
+  .item .memo{font-size:13px; color:var(--muted); margin-top:8px; line-height:1.5; word-break:break-word}
   /* 사진 크게 보기(라이트박스) */
   .lightbox{position:fixed; inset:0; background:rgba(0,0,0,.9); z-index:1000;
     display:flex; flex-direction:column; align-items:center; justify-content:center; gap:14px;
@@ -641,7 +642,6 @@ async function renderList(){
         <span class="bd ${e.type==="지출"?"bd-exp":"bd-inc"}">${e.type}</span>
         <span class="bd ${e.fund==="지원금"?"bd-jw":"bd-jb"}">${e.fund}</span>
         <span class="bd ${e.receipt==="O"?"bd-jw":"bd-wait"}">영수증 ${e.receipt||"-"}</span>
-        ${e.note?`<span class="bd bd-wait">${e.note}</span>`:""}
         ${stateBadge}
         ${e.photoFail?`<span class="bd bd-fail">⚠ 사진 실패</span>`:""}
         ${e.mirrorFlag?`<span class="bd bd-mirror">⚠ ${e.mirrorFlag}</span>`:""}
@@ -649,6 +649,7 @@ async function renderList(){
       ${imgs ? `<div class="imgs">${imgs}</div>`
               : (e.sheetPhoto ? sheetPhotoLinks_(e.sheetPhoto)
                               : `<div class="meta">사진 없음</div>`)}
+      ${e.note?`<div class="memo">📝 ${e.note}</div>`:""}
       ${showRephoto?`<button class="rephoto" data-id="${e.id}">사진 다시 올리기</button>`:""}`;
     box.appendChild(d);
   });
