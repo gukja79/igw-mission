@@ -66,6 +66,10 @@ function doPost(e){
     if(body.action === "update") return updateEntry_(body);
     if(body.action === "delete") return deleteEntry_(body);
 
+    // [Phase 3] 사진 관리 — 행은 그대로, K열 사진만 추가/단건삭제
+    if(body.action === "addPhotos")   return addPhotos_(body);
+    if(body.action === "deletePhoto") return deletePhoto_(body);
+
     const entry = body.entry;
     if(!entry || !entry.id) return json({ ok:false, error:"빈 요청" });
 
@@ -162,6 +166,86 @@ function retryPhotos_(entry){
   }catch(err){
     return json({ ok:false, error:String(err) });
   }
+}
+
+// [Phase 3] 사진 추가 — 기존 K열 링크 보존하고 새 사진을 뒤에 append (번호 이어감)
+function addPhotos_(body){
+  try{
+    const entry = body.entry || {};
+    if(!entry.id) return json({ ok:false, error:"빈 요청(사진 추가)" });
+    const pics = entry.photos || body.photos || [];
+    if(!pics.length) return json({ ok:false, error:"추가할 사진이 없음" });
+
+    const sheetId = SHEETS[entry.team];
+    if(!sheetId || sheetId.indexOf("여기에") === 0)
+      return json({ ok:false, error:"팀 시트 ID 미설정: " + entry.team });
+    const ss = SpreadsheetApp.openById(sheetId);
+    const sh = ss.getSheetByName(SHEET_NAME);
+    if(!sh) return json({ ok:false, error:"탭을 찾을 수 없음: " + SHEET_NAME });
+    const row = findRowById_(sh, entry.id);
+    if(!row) return json({ ok:false, error:"원본 행을 찾을 수 없음 (먼저 동기화하세요)" });
+
+    const kCell = sh.getRange(row, 11);
+    const existing = String(kCell.getValue() || "").split("\n").filter(s => s.trim() !== "");
+    const existingLinks = existing.filter(s => /\/d\/[A-Za-z0-9_-]{20,}/.test(s));  // ⚠ 손상줄은 번호계산서 제외
+
+    const folder = getTeamFolder_(entry.team);
+    const receiptNo = sh.getRange(row, RECEIPTNO_COL).getValue();
+    const aVal = sh.getRange(row, 1).getValue();
+    const dateStr = (aVal instanceof Date)
+      ? Utilities.formatDate(aVal, Session.getScriptTimeZone(), "yyyy-MM-dd")
+      : String(aVal || "nodate");
+    const acct = String(sh.getRange(row, 2).getValue() || "").replace(/[\\/:*?"<>|]/g, "-");
+    const base = pad3_(receiptNo) + "_" + dateStr + "_" + acct;
+
+    const added = [];
+    let okN = 0, failN = 0;
+    for(let i = 0; i < pics.length; i++){
+      const b64  = (typeof pics[i] === "string") ? pics[i] : pics[i].data;
+      const want = (pics[i] && pics[i].size) ? Number(pics[i].size) : 0;
+      const bytes = Utilities.base64Decode(b64);
+      if(want && bytes.length !== want){
+        added.push("⚠ 사진 전송 손상(" + bytes.length + "/" + want + ")");
+        failN++; continue;
+      }
+      const n  = existingLinks.length + okN + 1;          // 절대 위치로 파일명 번호 이어감
+      const nm = base + "_" + n + ".jpg";
+      const f  = folder.createFile(Utilities.newBlob(bytes, "image/jpeg", nm));
+      if(PHOTO_SHARE === "view"){
+        try{ f.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW); }catch(_){}
+      }
+      added.push(f.getUrl());
+      okN++;
+    }
+    const merged = existing.concat(added).join("\n");
+    kCell.setValue(merged);
+    return json({ ok:true, team:entry.team, row:row, photos:okN, photoFail:failN, photo:merged });
+  }catch(err){ return json({ ok:false, error:String(err) }); }
+}
+
+// [Phase 3] 사진 단건 삭제 — 그 fileId만 휴지통 + K열에서 그 줄만 제거
+function deletePhoto_(body){
+  try{
+    const entry  = body.entry || {};
+    const fileId = String(body.fileId || "");
+    if(!entry.id || !fileId) return json({ ok:false, error:"빈 요청(사진 삭제)" });
+
+    const sheetId = SHEETS[entry.team];
+    if(!sheetId || sheetId.indexOf("여기에") === 0)
+      return json({ ok:false, error:"팀 시트 ID 미설정: " + entry.team });
+    const ss = SpreadsheetApp.openById(sheetId);
+    const sh = ss.getSheetByName(SHEET_NAME);
+    if(!sh) return json({ ok:false, error:"탭을 찾을 수 없음: " + SHEET_NAME });
+    const row = findRowById_(sh, entry.id);
+    if(!row) return json({ ok:false, error:"원본 행을 찾을 수 없음 (먼저 동기화하세요)" });
+
+    const kCell = sh.getRange(row, 11);
+    const lines = String(kCell.getValue() || "").split("\n");
+    const kept  = lines.filter(ln => ln.indexOf(fileId) === -1);
+    try{ DriveApp.getFileById(fileId).setTrashed(true); }catch(_){}  // 실패해도 무시(이미 없을 수 있음)
+    kCell.setValue(kept.join("\n"));
+    return json({ ok:true, team:entry.team, row:row, photo:kept.join("\n") });
+  }catch(err){ return json({ ok:false, error:String(err) }); }
 }
 
 // 수정: A:D + G:J 두 블록만 덮어쓰기. E·F 수식 / K 사진 / L id 는 보존.
