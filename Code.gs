@@ -38,11 +38,9 @@ const PHOTO_SHARE  = "private";             // "private"=나만 열람 / "view"=
 // 팀 → 스프레드시트 ID  (시트 URL의 /d/ 와 /edit 사이 문자열)
 const SHEETS = {
   "몽골":        "1xs9W_J6I1mlMDimLvrPKWLZOYeD_5NqgY86-qJByIhc",
-  "라오스1":     "여기에-라오스1-시트ID",
   "중국1":       "여기에-중국1-시트ID",
   "인도네시아1": "여기에-인도네시아1-시트ID",
   "말레이시아1": "여기에-말레이시아1-시트ID",
-  "캄보디아1":   "여기에-캄보디아1-시트ID",
   "스리랑카":    "여기에-스리랑카-시트ID"
 };
 
@@ -50,6 +48,15 @@ const SHEETS = {
 // (행 식별을 단일 키로. 정렬 보기 탭 FILTER 가 A:K 라 L열은 안 딸려옴)
 const ID_COL = 12;
 const RECEIPTNO_COL = 13; // [Phase 2] M열=영수증번호(숨김). 서버 발급 max(M)+1 기준 + pull 이 읽어 표시.
+
+// [§14] 환전내역 시트 — 통화별 가중평균 환율 자동 산출 (메인 I3/I6/I9 는 시트수식이 알아서 끌어감)
+const FX_SHEET_NAME = "환전내역";  // 환전 기록 탭 (몽골만 신설·검증됨, 나머지 팀은 세팅 전까지 "탭 없음")
+const FX_FIRST_ROW  = 2;          // 데이터 시작 행 (보조표 J1:M4 는 다른 열이라 안 겹침)
+const FX_ID_COL     = 8;          // H열 id (메인 L열과 동형, 수정·삭제·백필 식별)
+const FX_PHOTO_COL  = 7;          // G열 사진 링크 (메인 K열과 동형)
+const FX_FOLDER     = "환전";      // 사진 저장 하위폴더 {팀}/환전 (영수증 사진과 분리)
+// 환전내역 열: A일자 B준통화 C준금액 D받은통화 E받은금액 F메모 G사진 H id
+// 보조표(서버 무관, 시트수식): J통화 K받은총량 L들어간원화 M평균환율 / J2달러 J3현지화1 J4현지화2
 
 function doPost(e){
   try{
@@ -69,6 +76,13 @@ function doPost(e){
     // [Phase 3] 사진 관리 — 행은 그대로, K열 사진만 추가/단건삭제
     if(body.action === "addPhotos")   return addPhotos_(body);
     if(body.action === "deletePhoto") return deletePhoto_(body);
+
+    // [§14] 환전내역 동기화 (별도 탭. 메인 내역서와 행시작·id열·사진열이 달라 전용 함수)
+    if(body.action === "fxCreate")         return fxCreate_(body);
+    if(body.action === "fxPull")           return fxPull_(body);
+    if(body.action === "fxUpdate")         return fxUpdate_(body);
+    if(body.action === "fxDelete")         return fxDelete_(body);
+    if(body.action === "fxRenameCurrency") return fxRenameCurrency_(body);
 
     const entry = body.entry;
     if(!entry || !entry.id) return json({ ok:false, error:"빈 요청" });
@@ -408,15 +422,17 @@ function receiptNoOf_(v){
   return (isNaN(n) || n <= 0) ? null : n;
 }
 
-// L열에서 id 가 있는 행 찾기 (없으면 0)
-function findRowById_(sh, id){
+// L열에서 id 가 있는 행 찾기 (없으면 0). firstRow·idCol 생략 시 메인 내역서 기준(12/L).
+function findRowById_(sh, id, firstRow, idCol){
+  firstRow = firstRow || FIRST_DATA_ROW;
+  idCol    = idCol    || ID_COL;
   const last = sh.getLastRow();
-  if(last < FIRST_DATA_ROW) return 0;
-  const n = last - FIRST_DATA_ROW + 1;
-  const col = sh.getRange(FIRST_DATA_ROW, ID_COL, n, 1).getValues();
+  if(last < firstRow) return 0;
+  const n = last - firstRow + 1;
+  const col = sh.getRange(firstRow, idCol, n, 1).getValues();
   const want = String(id);
   for(let i = 0; i < col.length; i++){
-    if(String(col[i][0]) === want) return FIRST_DATA_ROW + i;
+    if(String(col[i][0]) === want) return firstRow + i;
   }
   return 0;
 }
@@ -434,9 +450,10 @@ function findRowInSyncedLog_(ss, id){
   return 0;
 }
 
-// K열 링크에서 드라이브 파일 id 를 뽑아 휴지통으로 (영구삭제 X)
-function trashPhotosFromRow_(sh, row){
-  const kVal = String(sh.getRange(row, 11).getValue() || "");
+// 사진열 링크에서 드라이브 파일 id 를 뽑아 휴지통으로 (영구삭제 X). photoCol 생략 시 메인 K(11).
+function trashPhotosFromRow_(sh, row, photoCol){
+  photoCol = photoCol || 11;
+  const kVal = String(sh.getRange(row, photoCol).getValue() || "");
   if(!kVal) return;
   const re = /\/d\/([A-Za-z0-9_-]{20,})/g;
   let m;
@@ -479,6 +496,280 @@ function savePhotos_(sh, row, entry, receiptNo){
     failN++;
   }
   return { ok:okN, fail:failN };
+}
+
+/* ===================================================================
+   [§14] 환전내역 동기화 — 통화별 가중평균 환율 자동 산출
+   메인 내역서와 다른 점: 데이터 2행부터 / id=H열 / 사진=G열 / 영수증번호 없음 / E·F 수식 없음.
+   I3/6/9(메인 환율칸)·보조표 J:M(평균환율 수식)은 서버가 안 건드림 — 시트가 알아서 계산.
+   =================================================================== */
+
+// 팀 → 환전내역 시트 핸들 (없으면 throw, 각 함수 try/catch 가 잡아 json 으로 반환)
+function fxSheetOf_(team){
+  const sheetId = SHEETS[team];
+  if(!sheetId || sheetId.indexOf("여기에") === 0) throw new Error("팀 시트 ID 미설정: " + team);
+  const ss = SpreadsheetApp.openById(sheetId);
+  const sh = ss.getSheetByName(FX_SHEET_NAME);
+  if(!sh) throw new Error("탭을 찾을 수 없음: " + FX_SHEET_NAME + " (해당 팀 환전 시트 미세팅)");
+  return { ss:ss, sh:sh };
+}
+
+// 환전 사진 폴더: {팀}/환전 (영수증 사진과 분리)
+function getFxFolder_(team){
+  return getOrCreateFolder_(getTeamFolder_(team), FX_FOLDER);
+}
+
+// 완성행 판정(환전): A·B·C·D·E 모두 채워짐 (F 메모·G 사진은 선택)
+function fxRowComplete_(r){
+  return cellFilled_(r[0]) && cellFilled_(r[1]) && cellFilled_(r[2]) &&
+         cellFilled_(r[3]) && cellFilled_(r[4]);
+}
+
+// 환전 기록의 마지막 데이터 행 (B열 준통화 기준. 보조표 J:M 은 다른 열이라 안 걸림)
+function fxLastRow_(sh){
+  const maxRows = sh.getMaxRows();
+  const colB = sh.getRange(FX_FIRST_ROW, 2, maxRows - FX_FIRST_ROW + 1, 1).getValues();
+  let last = FX_FIRST_ROW - 1;
+  for(let i = 0; i < colB.length; i++){
+    if(String(colB[i][0]).trim() !== "") last = FX_FIRST_ROW + i;
+  }
+  return last;
+}
+
+// 보조표 J2:M4 스냅샷 → {usd, local1, local2} 각 {name, rate}. 빈 슬롯은 name:"" rate:null
+function fxRates_(sh){
+  const g = sh.getRange("J2:M4").getValues();   // 행 2,3,4 / 열 J,K,L,M
+  function pick(a){
+    const name = String(a[0] || "").trim();      // J 통화명
+    const m    = a[3];                            // M 평균환율
+    return { name:name, rate:(typeof m === "number" && !isNaN(m)) ? m : null };
+  }
+  return { usd:pick(g[0]), local1:pick(g[1]), local2:pick(g[2]) };
+}
+
+// [§14] 통화 코드 → 실제 통화명 변환. 앱은 코드(원화/달러/현지화1/현지화2)를 보내고
+//   서버가 보조표 J셀(J2달러·J3현지화1·J4현지화2)을 읽어 시트 B·D엔 '이름'으로 기록한다.
+//   (보조표 SUMIFS 가 D열을 J 라벨과 매칭하므로 B·D 는 반드시 이름이어야 함.)
+//   이미 이름으로 들어온 값(코드 아님)은 그대로 통과 → 앱/서버 양쪽 형식에 안전.
+function fxCcyName_(sh, code){
+  const c = String(code || "").trim();
+  if(c === "" || c === "원화") return "원화";
+  var cell = (c === "달러") ? "J2" : (c === "현지화1") ? "J3" : (c === "현지화2") ? "J4" : "";
+  if(!cell) return c;   // 이미 이름(코드 아님)이면 그대로
+  var v = String(sh.getRange(cell).getValue() || "").trim();
+  return v || c;        // J 라벨 비어 있으면 코드 폴백(달러는 코드==이름이라 무해)
+}
+
+// 환전 사진 저장 — G열에 링크 기록, {ok,fail}. 영수증번호 없으니 파일명=날짜+통화쌍.
+function savePhotosG_(sh, row, entry){
+  let okN = 0, failN = 0;
+  try{
+    const pics = entry.photos || [];
+    if(!pics.length) return { ok:0, fail:0 };
+
+    const folder = getFxFolder_(entry.team);
+    const fromC = String(entry.fromCurrency || "").replace(/[\\/:*?"<>|]/g, "-");
+    const toC   = String(entry.toCurrency   || "").replace(/[\\/:*?"<>|]/g, "-");
+    const base  = (entry.date || "nodate") + "_" + fromC + "-" + toC;
+    const out = [];
+    for(let i = 0; i < pics.length; i++){
+      const b64  = (typeof pics[i] === "string") ? pics[i] : pics[i].data;
+      const want = (pics[i] && pics[i].size) ? Number(pics[i].size) : 0;
+      const bytes = Utilities.base64Decode(b64);
+      if(want && bytes.length !== want){
+        out.push("⚠ 사진" + (i + 1) + " 전송 손상(" + bytes.length + "/" + want + ")");
+        failN++;
+        continue;
+      }
+      const nm = base + (pics.length > 1 ? "_" + (i + 1) : "") + ".jpg";
+      const f = folder.createFile(Utilities.newBlob(bytes, "image/jpeg", nm));
+      if(PHOTO_SHARE === "view"){
+        try{ f.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW); }catch(_){}
+      }
+      out.push(f.getUrl());
+      okN++;
+    }
+    if(out.length) sh.getRange(row, FX_PHOTO_COL).setValue(out.join("\n"));   // G 사진
+  }catch(perr){
+    sh.getRange(row, FX_PHOTO_COL).setValue("사진 업로드 오류: " + String(perr));
+    failN++;
+  }
+  return { ok:okN, fail:failN };
+}
+
+// 환전 1건 추가: A:F 입력 + H id + G 사진. (번호발급·E/F수식 복사 없음 → 메인보다 단순)
+function fxCreate_(body){
+  try{
+    const entry = body.entry || {};
+    if(!entry.id) return json({ ok:false, error:"빈 요청(환전)" });
+    const { sh } = fxSheetOf_(entry.team);
+
+    // 중복 컷: H열에 같은 id 있으면 이전에 만든 행 (락 밖 빠른 컷)
+    const dup = findRowById_(sh, entry.id, FX_FIRST_ROW, FX_ID_COL);
+    if(dup) return json({ ok:true, dup:true, row:dup });
+
+    const lock = LockService.getScriptLock();
+    lock.waitLock(20000);
+    let row;
+    try{
+      const re = findRowById_(sh, entry.id, FX_FIRST_ROW, FX_ID_COL);   // 락 안 재확인
+      if(re) return json({ ok:true, dup:true, row:re });
+
+      row = fxLastRow_(sh) + 1;
+      sh.getRange(row, 1).setValue(toDate_(entry.date));        // A 일자 (진짜 날짜값)
+      sh.getRange(row, 1).setNumberFormat("yyyy-mm-dd");
+      sh.getRange(row, 2).setValue(fxCcyName_(sh, entry.fromCurrency));   // B 준통화 (코드→이름)
+      sh.getRange(row, 3).setValue(entry.fromAmount);           // C 준금액
+      sh.getRange(row, 4).setValue(fxCcyName_(sh, entry.toCurrency));     // D 받은통화 (코드→이름)
+      sh.getRange(row, 5).setValue(entry.toAmount);             // E 받은금액
+      sh.getRange(row, 6).setValue(entry.memo || "");           // F 메모
+      sh.getRange(row, FX_ID_COL).setValue(String(entry.id));   // H id
+      SpreadsheetApp.flush();
+    } finally {
+      lock.releaseLock();
+    }
+
+    const pr = savePhotosG_(sh, row, entry);   // G 사진 (실패해도 행 보존)
+    return json({ ok:true, team:entry.team, row:row, photos:pr.ok, photoFail:pr.fail });
+  }catch(err){
+    return json({ ok:false, error:String(err) });
+  }
+}
+
+// 환전 내려받기: 환전 기록 목록 + 현재 평균환율(rates) + 완성행 H=id 백필
+function fxPull_(body){
+  try{
+    const team = body.team;
+    const { ss, sh } = fxSheetOf_(team);
+    const tz = ss.getSpreadsheetTimeZone();
+    const rates = fxRates_(sh);                       // J2:M4 스냅샷 (앱 환율 탭 표시용)
+
+    const last = fxLastRow_(sh);
+    if(last < FX_FIRST_ROW)
+      return json({ ok:true, team:team, count:0, backfilled:0, rows:[], rates:rates });
+
+    const n = last - FX_FIRST_ROW + 1;
+    const vals = sh.getRange(FX_FIRST_ROW, 1, n, FX_ID_COL).getValues();   // A..H
+
+    // 백필 대상: H(id) 비고 A·B·C·D·E 다 찬 완성행 (손입력행에 안정적 식별자 부여)
+    const need = [];
+    for(let i = 0; i < n; i++){
+      if(!cellFilled_(vals[i][FX_ID_COL - 1]) && fxRowComplete_(vals[i])) need.push(i);
+    }
+    if(need.length){
+      const lock = LockService.getScriptLock();
+      lock.waitLock(20000);
+      try{
+        const idCol = sh.getRange(FX_FIRST_ROW, FX_ID_COL, n, 1).getValues();   // 락 안 신선 재확인
+        for(let k = 0; k < need.length; k++){
+          const i = need[k];
+          if(cellFilled_(idCol[i][0])) continue;
+          const newId = makeBackfillId_();
+          sh.getRange(FX_FIRST_ROW + i, FX_ID_COL).setValue(newId);
+          vals[i][FX_ID_COL - 1] = newId;   // 반환 JSON 에도 즉시 반영
+        }
+        SpreadsheetApp.flush();
+      } finally {
+        lock.releaseLock();
+      }
+    }
+
+    const rows = [];
+    for(let i = 0; i < n; i++){
+      const r = vals[i];
+      if(String(r[1] || "").trim() === "") continue;   // B(준통화) 빈 행 스킵
+      rows.push({
+        row:          FX_FIRST_ROW + i,
+        id:           String(r[FX_ID_COL - 1] || ""),
+        date:         fmtDate_(r[0], tz),
+        fromCurrency: String(r[1] || ""),
+        fromAmount:   num_(r[2]),
+        toCurrency:   String(r[3] || ""),
+        toAmount:     num_(r[4]),
+        memo:         String(r[5] || ""),
+        photo:        String(r[6] || "")    // G
+      });
+    }
+    return json({ ok:true, team:team, count:rows.length, backfilled:need.length, rows:rows, rates:rates });
+  }catch(err){
+    return json({ ok:false, error:String(err) });
+  }
+}
+
+// 환전 수정: A:F 덮어쓰기. G 사진·H id 보존. 행 없으면 missing:true (앱이 유령 카드 정리).
+function fxUpdate_(body){
+  try{
+    if(!body.id) return json({ ok:false, error:"id 없음" });
+    const { sh } = fxSheetOf_(body.team);
+    const row = findRowById_(sh, body.id, FX_FIRST_ROW, FX_ID_COL);
+    if(!row) return json({ ok:true, missing:true });
+
+    sh.getRange(row, 1, 1, 6).setValues([[
+      toDate_(body.date), fxCcyName_(sh, body.fromCurrency), body.fromAmount,
+      fxCcyName_(sh, body.toCurrency), body.toAmount, body.memo || ""
+    ]]);
+    sh.getRange(row, 1).setNumberFormat("yyyy-mm-dd");
+    return json({ ok:true, team:body.team, row:row });
+  }catch(err){
+    return json({ ok:false, error:String(err) });
+  }
+}
+
+// 환전 삭제: G열 사진 휴지통 → 행 삭제. 멱등.
+function fxDelete_(body){
+  try{
+    if(!body.id) return json({ ok:false, error:"id 없음" });
+    const { sh } = fxSheetOf_(body.team);
+    const row = findRowById_(sh, body.id, FX_FIRST_ROW, FX_ID_COL);
+    if(!row) return json({ ok:true });   // 이미 없음 → 멱등 ok
+
+    trashPhotosFromRow_(sh, row, FX_PHOTO_COL);
+    sh.deleteRow(row);
+    return json({ ok:true, team:body.team, row:row });
+  }catch(err){
+    return json({ ok:false, error:String(err) });
+  }
+}
+
+// 통화명 일괄 갱신 — 환전내역 B·D(준/받은통화) + 보조표 J 라벨을 새 이름으로.
+//   slot:"local1"→J3 / "local2"→J4. B·D 와 J 를 같이 바꿔야 보조표 SUMIFS 가 안 깨짐 → 락으로 묶음.
+//   메인 시트는 코드(현지화N)·셀참조라 무관 → 안 건드림.
+function fxRenameCurrency_(body){
+  try{
+    const oldName = String(body.oldName || "").trim();
+    const newName = String(body.newName || "").trim();
+    if(!newName) return json({ ok:false, error:"newName 필요" });   // oldName 빈값 = 최초 설정(라벨만)
+    if(oldName === newName)  return json({ ok:true, changedBD:0, changedLabel:"(동일)" });
+    const labelCell = (body.slot === "local1") ? "J3" : (body.slot === "local2") ? "J4" : "";
+    if(!labelCell) return json({ ok:false, error:"slot 은 local1/local2" });
+
+    const { sh } = fxSheetOf_(body.team);
+
+    const lock = LockService.getScriptLock();
+    lock.waitLock(20000);
+    let changed = 0;
+    try{
+      // oldName 이 있을 때만 기존 환전 기록 B·D 치환 (최초 설정이면 라벨만 기록 → 빈칸 오염 방지)
+      if(oldName){
+        const last = fxLastRow_(sh);
+        if(last >= FX_FIRST_ROW){
+          const n = last - FX_FIRST_ROW + 1;
+          const bd = sh.getRange(FX_FIRST_ROW, 2, n, 3).getValues();   // B,C,D (C 는 안 건드림)
+          for(let i = 0; i < n; i++){
+            if(String(bd[i][0]).trim() === oldName){ sh.getRange(FX_FIRST_ROW + i, 2).setValue(newName); changed++; }  // B
+            if(String(bd[i][2]).trim() === oldName){ sh.getRange(FX_FIRST_ROW + i, 4).setValue(newName); changed++; }  // D
+          }
+        }
+      }
+      sh.getRange(labelCell).setValue(newName);   // 보조표 J 라벨 (SUMIFS 매칭 키)
+      SpreadsheetApp.flush();
+    } finally {
+      lock.releaseLock();
+    }
+    return json({ ok:true, team:body.team, changedBD:changed, changedLabel:labelCell });
+  }catch(err){
+    return json({ ok:false, error:String(err) });
+  }
 }
 
 // 연결 확인용 (브라우저에서 URL 열면 보임)
