@@ -1036,8 +1036,23 @@ async function doPhotosAction(){
 async function openPhotoMgr(entry){
   if(entry.syncState !== "완료"){ toast("먼저 동기화한 뒤 사진을 관리할 수 있어요"); return; }
   pmgrTargetId = entry.id;
-  renderPhotoMgr(entry);
+  // 앱에서 직접 입력한 항목은 로컬에 시트 사진링크(sheetPhoto)가 없음 → 온라인이면 시트에서 그 행을 읽어와 최신화
+  $("pmgr-hint").textContent = "";
+  $("pmgr-body").innerHTML = `<div class="pmgr-empty">사진 불러오는 중…</div>`;
   $("photo-mgr").classList.remove("hidden");
+  if(navigator.onLine){
+    const cfg = SYNC[team];
+    if(cfg && cfg.url){
+      try{
+        const r = await postAction(cfg, { secret:cfg.secret, action:"pull", team });
+        if(r && r.ok && Array.isArray(r.rows)){
+          const mine = r.rows.find(x=>String(x.id)===String(entry.id));
+          if(mine){ entry.sheetPhoto = mine.photo || ""; await saveEntry(entry); }
+        }
+      }catch(_){}
+    }
+  }
+  if(pmgrTargetId === entry.id) renderPhotoMgr(entry);  // 그새 닫혔으면 렌더 스킵
 }
 function closePhotoMgr(){ $("photo-mgr").classList.add("hidden"); pmgrTargetId = null; }
 function renderPhotoMgr(entry){
