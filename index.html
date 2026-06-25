@@ -205,6 +205,23 @@
   .pmgr-add.disabled{opacity:.5}
   .pmgr-close{display:block; width:100%; margin-top:8px; padding:12px; border:none; border-radius:12px;
     background:var(--fill); color:var(--ink); font-size:14px; font-weight:600; cursor:pointer}
+
+  /* 환전(FX) 화면 — 현재 환율 표시 + 환전 입력/목록 */
+  .fx-rates{display:flex; flex-direction:column; gap:8px; margin:6px 0 4px}
+  .fx-rate-row{display:flex; align-items:center; justify-content:space-between; gap:10px;
+    background:var(--fill); border:1px solid var(--line); border-radius:12px; padding:11px 13px}
+  .fx-rate-name{font-size:14px; font-weight:700; color:var(--accent)}
+  .fx-rate-val{font-size:14px; font-weight:600; color:var(--ink)}
+  .fx-na{color:var(--muted); font-weight:600}
+  .fx-rate-empty{font-size:13px; color:var(--muted); background:var(--fill); border:1px dashed #c7c9d6;
+    border-radius:12px; padding:14px; text-align:center; line-height:1.5}
+  .fx-arrow{color:var(--muted); font-weight:400; margin:0 2px}
+  .fx-l2{display:flex; align-items:center; justify-content:space-between; gap:10px;
+    font-size:13px; color:var(--muted); padding:4px 2px 0}
+  .fx-l2 b{color:var(--ink)}
+  .fx-l2-btn{background:none; border:none; color:var(--blu); font-size:13px; font-weight:600; cursor:pointer; padding:4px}
+  .fx-l2-add{width:100%; margin-top:4px; padding:11px; border:1.5px dashed #c7c9d6; border-radius:12px;
+    background:var(--fill); color:var(--muted); font-size:13px; font-weight:600; cursor:pointer}
 </style>
 </head>
 <body>
@@ -302,18 +319,52 @@
       <input type="file" id="addphoto-input" accept="image/*" multiple class="hidden">
     </div>
 
-    <!-- 환율 설정 화면 -->
-    <div id="view-rates" class="card hidden">
-      <div class="ttl-sm">환율 설정</div>
-      <div class="hint">현지 통화 1단위 = 몇 원인지 입력하세요 (구글시트 I3·I6·I9와 같은 값으로). 입력 화면의 원화 환산 표시에만 쓰이고, 시트의 정식 계산은 시트가 따로 합니다.</div>
-      <label class="fld">달러 (1 USD = ?원)</label>
-      <input type="number" id="r-usd" inputmode="decimal" placeholder="예: 1521">
-      <label class="fld">현지화1 — 이름 / 환율</label>
-      <div class="row2"><div><input type="text" id="r1-name" placeholder="예: MNT" autocapitalize="characters"></div><div><input type="number" id="r1-rate" inputmode="decimal" placeholder="예: 0.43"></div></div>
-      <label class="fld">현지화2 — 이름 / 환율</label>
-      <div class="row2"><div><input type="text" id="r2-name" placeholder="예: BAHT" autocapitalize="characters"></div><div><input type="number" id="r2-rate" inputmode="decimal" placeholder="예: 36"></div></div>
-      <button class="save" id="btn-rates-save">환율 저장</button>
-      <button class="del" id="btn-rates-close" style="display:block; margin:12px auto 0">닫기</button>
+    <!-- 환전 화면 (현재 환율 표시 + 환전 입력/목록) -->
+    <div id="view-fx" class="card hidden">
+      <div class="ttl-sm">현재 환율</div>
+      <div class="hint">환전 거래를 입력하면 통화별 평균환율이 자동으로 계산돼요. (정식 원화 환산은 시트가 합니다)</div>
+      <div class="fx-rates" id="fx-rates"></div>
+
+      <div class="ttl-sm" style="margin-top:20px">환전 입력</div>
+      <label class="fld">일자</label>
+      <input type="date" id="fx-date">
+
+      <label class="fld">준 통화 / 금액</label>
+      <div class="row2">
+        <div><select id="fx-from-cur"></select></div>
+        <div><input type="number" id="fx-from-amt" inputmode="decimal" placeholder="0"></div>
+      </div>
+
+      <label class="fld">받은 통화 / 금액</label>
+      <div class="row2">
+        <div><select id="fx-to-cur"></select></div>
+        <div><input type="number" id="fx-to-amt" inputmode="decimal" placeholder="0"></div>
+      </div>
+      <div id="fx-preview" class="krw"></div>
+
+      <label class="fld">메모</label>
+      <input type="text" id="fx-memo" placeholder="선택 입력 (예: 공항 환전소)">
+
+      <div id="fx-photo-section">
+        <label class="fld">사진 (선택)</label>
+        <div class="photos" id="fx-photos">
+          <label class="addphoto">＋ 사진<input type="file" id="fx-photo" accept="image/*" multiple class="hidden"></label>
+        </div>
+      </div>
+
+      <button class="save" id="btn-fx-save">환전 저장</button>
+
+      <div class="list-head" style="margin-top:24px">
+        <div class="count" id="fx-count"></div>
+        <div class="head-btns">
+          <button class="syncbtn pullbtn" id="btn-fx-pull">내려받기</button>
+          <button class="syncbtn" id="btn-fx-sync">동기화</button>
+        </div>
+      </div>
+      <div id="fx-sync-status"></div>
+      <div id="fx-list"></div>
+
+      <button id="btn-fx-close" style="display:block; margin:16px auto 0; background:none; border:none; color:var(--muted); font-size:14px; cursor:pointer">닫기</button>
       <div class="appver" id="appver"></div>
     </div>
   </div>
@@ -346,14 +397,18 @@
 /* =====================================================================
    설정 — 여기만 고치면 됩니다
    ===================================================================== */
-const TEAMS = ["라오스1", "몽골", "중국1", "인도네시아1", "말레이시아1", "캄보디아1", "스리랑카"];
+const TEAMS = ["몽골", "중국1", "인도네시아1", "말레이시아1", "스리랑카"];
 const DIVISION = "세계선교부";                              // 분류 (고정)
+// 팀별 현지화1 통화명 (운영자 고정 — 시트 환전내역 J3 와 동일 글자여야 함)
+const LOCAL1 = {
+  "몽골":"MNT", "중국1":"CNY", "인도네시아1":"IDR", "말레이시아1":"MYR", "스리랑카":"LKR"
+};
 const ACCOUNTS = {
   지출: ["01.항공료","02.여행자보험","03.비자비","04.준비비","05.식비","06.숙박비","07.교통비","08.사역비","09.문화체험","10.선교헌금","11.예비비","12.평가회"],
   수입: ["수입_항공료","수입_체제비","수입_아웃리치","수입_기타수입"]
 };
 const FUND_TYPES = ["지원금","자부담"];
-// 사용 통화 — 구글시트 H열 값과 동일하게 보관. label은 나중에 통화명(MNT/BAHT 등)으로 바꿔도 됨.
+// 사용 통화 — 코드(시트 H열·서버 변환 기준). 표시 이름은 LOCAL1/현지화2 설정값으로 치환.
 const CURRENCIES = [
   {key:"원화",    label:"원화"},
   {key:"달러",    label:"달러"},
@@ -362,12 +417,10 @@ const CURRENCIES = [
 ];
 // 팀별 동기화 설정 — 시트 Apps Script 배포 후 url/secret 채우기 (팀 이름은 TEAMS와 동일하게)
 const SYNC = {
-  "라오스1":     { url:"", secret:"" },
   "몽골":        { url:"https://script.google.com/macros/s/AKfycbygbwjiL_zkHzgKwXlasJ4a1WpHZ8MlVGk6raBJtGwSc5UMUExC53FTL1hbpY74TZBt/exec", secret:"29540027" },
   "중국1":       { url:"", secret:"" },
   "인도네시아1": { url:"", secret:"" },
   "말레이시아1": { url:"", secret:"" },
-  "캄보디아1":   { url:"", secret:"" },
   "스리랑카":    { url:"", secret:"" }
 };
 
@@ -377,11 +430,13 @@ const SYNC = {
 let db;
 function openDB(){
   return new Promise((res,rej)=>{
-    const r = indexedDB.open("igw_mission", 1);
+    const r = indexedDB.open("igw_mission", 2);   // v1→v2: 환전(fx) 스토어 추가 (기존 entries 보존)
     r.onupgradeneeded = e => {
       const d = e.target.result;
       if(!d.objectStoreNames.contains("entries"))
         d.createObjectStore("entries", { keyPath:"id" });
+      if(!d.objectStoreNames.contains("fx"))
+        d.createObjectStore("fx", { keyPath:"id" });
     };
     r.onsuccess = e => { db = e.target.result; res(db); };
     r.onerror  = e => rej(e.target.error);
@@ -391,6 +446,12 @@ function tx(mode){ return db.transaction("entries", mode).objectStore("entries")
 function saveEntry(o){ return new Promise((res,rej)=>{ const r=tx("readwrite").put(o); r.onsuccess=()=>res(); r.onerror=e=>rej(e.target.error); }); }
 function getAll(){ return new Promise((res,rej)=>{ const r=tx("readonly").getAll(); r.onsuccess=()=>res(r.result||[]); r.onerror=e=>rej(e.target.error); }); }
 function delEntry(id){ return new Promise((res,rej)=>{ const r=tx("readwrite").delete(id); r.onsuccess=()=>res(); r.onerror=e=>rej(e.target.error); }); }
+
+// [§14] 환전(fx) 스토어 — 원장 entries 와 분리 보관
+function fxTx(mode){ return db.transaction("fx", mode).objectStore("fx"); }
+function fxSave(o){ return new Promise((res,rej)=>{ const r=fxTx("readwrite").put(o); r.onsuccess=()=>res(); r.onerror=e=>rej(e.target.error); }); }
+function fxGetAll(){ return new Promise((res,rej)=>{ const r=fxTx("readonly").getAll(); r.onsuccess=()=>res(r.result||[]); r.onerror=e=>rej(e.target.error); }); }
+function fxDel(id){ return new Promise((res,rej)=>{ const r=fxTx("readwrite").delete(id); r.onsuccess=()=>res(); r.onerror=e=>rej(e.target.error); }); }
 
 /* =====================================================================
    상태
@@ -404,6 +465,10 @@ let rateCfg = {};          // 통화별 환율/이름 (원화 환산 표시용, 
 let rephotoTargetId = null;
 let editingId = null;        // 수정 모드 대상 id (null=새 입력)
 let actionTargetId = null;   // 액션 시트 대상 id
+let fxPhotos = [];           // [§14] 환전 입력 사진 [{blob,b64,size,url}]
+let fxSyncing = false;       // 환전 동기화 진행 중
+let fxPulling = false;       // 환전 내려받기 진행 중
+let local2Name = "";         // [§14] 현지화2(경유 통화) 이름 — 회계가 1회 설정, 팀별 localStorage
 
 /* =====================================================================
    사진 압축 (찍는 순간 가볍게)
@@ -453,12 +518,17 @@ function startMain(){
   $("f-division").textContent = DIVISION;
   $("f-team").textContent = team;
   rateCfg = JSON.parse(localStorage.getItem("igw_rates_"+team) || "{}");
+  local2Name = localStorage.getItem("igw_local2_"+team) || "";
+  seedRateCfg();   // 라벨을 팀 고정값(LOCAL1/현지화2)으로 보정 — 오프라인 첫 실행 대비
   fillFund();
   fillAccounts();
   fillCurrencies();
   $("f-date").value = todayStr();
   switchTab("input");
-  if(navigator.onLine) setTimeout(()=>syncNow(false), 600);  // 열 때 자동 동기화 시도
+  if(navigator.onLine){
+    setTimeout(()=>syncNow(false), 600);   // 열 때 자동 동기화 시도
+    setTimeout(()=>fxRefresh(false), 900);  // 환율·환전 내역도 갱신 (원장 미리보기 최신화)
+  }
 }
 
 function todayStr(){
@@ -474,15 +544,40 @@ function fillFund(){
   const s=$("f-fund"); s.innerHTML="";
   FUND_TYPES.forEach(f=>{ const o=document.createElement("option"); o.value=f; o.textContent=f; s.appendChild(o); });
 }
-function fillCurrencies(){
-  const s=$("f-currency"); if(!s) return;
+// 사용 가능한 통화 옵션 — 현지화2 는 이름이 설정된 경우만 노출
+function currencyOptions(){
+  return CURRENCIES.filter(c=> c.key!=="현지화2" || !!local2Name)
+                   .map(c=>({ key:c.key, label: curLabel_(c.key) }));
+}
+// 통화 코드 → 표시 이름 (원화·달러 고정 / 현지화1=LOCAL1 / 현지화2=설정값). 이미 이름이면 그대로.
+function curLabel_(k){
+  if(k==="원화") return "원화";
+  if(k==="달러") return "달러";
+  if(k==="현지화1") return LOCAL1[team] || "현지화1";
+  if(k==="현지화2") return local2Name || "현지화2";
+  return (CURRENCIES.find(c=>c.key===k)||{label:k}).label;
+}
+// rateCfg 라벨을 팀 고정 이름으로 보정(환율값은 보존). 오프라인·첫 실행에도 이름이 정확히 뜨게.
+function seedRateCfg(){
+  const r = rateCfg || {};
+  const keepRate = k => (r[k] && typeof r[k].rate === "number") ? r[k].rate : 0;
+  rateCfg = {
+    "달러":   { label:"달러",                 rate:keepRate("달러") },
+    "현지화1": { label:(LOCAL1[team]||"현지화1"), rate:keepRate("현지화1") },
+    "현지화2": { label:(local2Name||"현지화2"),   rate:keepRate("현지화2") }
+  };
+}
+function fillCurSelect(s){
+  if(!s) return;
   const keep=s.value;
   s.innerHTML="";
-  CURRENCIES.forEach(c=>{
-    const label = c.key==="원화" ? "원화" : ((rateCfg[c.key]&&rateCfg[c.key].label) || c.label);
-    const o=document.createElement("option"); o.value=c.key; o.textContent=label; s.appendChild(o);
-  });
-  if(keep) s.value=keep;
+  currencyOptions().forEach(c=>{ const o=document.createElement("option"); o.value=c.key; o.textContent=c.label; s.appendChild(o); });
+  if(keep && currencyOptions().some(c=>c.key===keep)) s.value=keep;
+}
+function fillCurrencies(){
+  fillCurSelect($("f-currency"));
+  fillCurSelect($("fx-from-cur"));
+  fillCurSelect($("fx-to-cur"));
   updatePreview();
 }
 function updatePreview(){
@@ -491,27 +586,159 @@ function updatePreview(){
   if(!amt){ el.textContent=""; el.className="krw"; return; }
   if(cur==="원화"){ el.textContent=`= ${Math.round(amt).toLocaleString()}원`; el.className="krw ok"; return; }
   const c=rateCfg[cur];
-  if(c && c.rate){ el.textContent=`≈ ${Math.round(amt*c.rate).toLocaleString()}원  (1 ${c.label||cur} = ${c.rate}원)`; el.className="krw ok"; }
-  else { el.textContent="환율 미설정 — 상단 '환율'에서 입력하세요"; el.className="krw warn"; }
+  if(c && c.rate){ el.textContent=`≈ ${Math.round(amt*c.rate).toLocaleString()}원 (저장된 환율 기준, 연결 시 확정)`; el.className="krw ok"; }
+  else { el.textContent="환율 정보 없음 — 연결되면 자동 계산"; el.className="krw warn"; }
 }
-function openRates(){
+// [§14] 환전 화면 열기 — 환율 표시 + 환전 입력/목록
+function openFx(){
   if(editingId) cancelEdit();
   $("view-input").classList.add("hidden"); $("view-list").classList.add("hidden");
-  $("view-rates").classList.remove("hidden");
-  const u=rateCfg["달러"]||{}, c1=rateCfg["현지화1"]||{}, c2=rateCfg["현지화2"]||{};
-  $("r-usd").value=u.rate||""; $("r1-name").value=c1.label||""; $("r1-rate").value=c1.rate||"";
-  $("r2-name").value=c2.label||""; $("r2-rate").value=c2.rate||"";
+  $("view-fx").classList.remove("hidden");
+  if(!$("fx-date").value) $("fx-date").value = todayStr();
+  fillCurrencies();
+  renderFxRates();
+  fxPreview();
+  renderFxList();
+  if(navigator.onLine) fxRefresh(false);   // 백그라운드로 환율·환전 내역 갱신
 }
-function saveRates(){
+
+// [§14] 서버 rates → 환율값만 반영(이름은 팀 고정/설정값 유지) + 캐시 + UI 갱신
+function applyRates(rates){
+  if(!rates) return;
+  // 다른 기기/운영자가 현지화2 이름을 시트에 넣어둔 경우, 로컬이 비어 있으면 채택
+  if(!local2Name && rates.local2 && rates.local2.name){
+    local2Name = String(rates.local2.name).trim();
+    if(local2Name) localStorage.setItem("igw_local2_"+team, local2Name);
+  }
+  const rv = s => (s && typeof s.rate === "number") ? s.rate : 0;
   rateCfg = {
-    "달러":   { label:"달러", rate:Number($("r-usd").value)||0 },
-    "현지화1": { label:($("r1-name").value.trim()||"현지화1"), rate:Number($("r1-rate").value)||0 },
-    "현지화2": { label:($("r2-name").value.trim()||"현지화2"), rate:Number($("r2-rate").value)||0 }
+    "달러":   { label:"달러",                 rate:rv(rates.usd) },
+    "현지화1": { label:(LOCAL1[team]||"현지화1"), rate:rv(rates.local1) },
+    "현지화2": { label:(local2Name||"현지화2"),   rate:rv(rates.local2) }
   };
   localStorage.setItem("igw_rates_"+team, JSON.stringify(rateCfg));
   fillCurrencies();
-  toast("환율 저장됨");
-  switchTab("input");
+  renderFxRates();
+}
+
+// [§14] 현재 환율 카드 (읽기 전용) + 현지화2(경유 통화) 설정 컨트롤
+function renderFxRates(){
+  const box=$("fx-rates"); if(!box) return;
+  const slots=[["달러","달러"],["현지화1","현지화1"],["현지화2","현지화2"]];
+  let html="";
+  slots.forEach(([k,code])=>{
+    const r=rateCfg[k];
+    if(k==="현지화2" && !local2Name) return;   // 미설정 숨김
+    const name=(r&&r.label)||code;
+    const val=(r&&r.rate)
+      ? `${r.rate.toLocaleString(undefined,{maximumFractionDigits:6})}원`
+      : `<span class="fx-na">연결 시 계산</span>`;
+    html+=`<div class="fx-rate-row"><span class="fx-rate-name">${name}</span><span class="fx-rate-val">1 ${name} = ${val}</span></div>`;
+  });
+  if(!html) html=`<div class="fx-rate-empty">아직 환율 정보가 없어요.<br>환전을 입력하고 연결하면 자동으로 계산됩니다.</div>`;
+  // 현지화2(경유 통화) 설정/수정
+  html += local2Name
+    ? `<div class="fx-l2"><span>경유 통화 <b>${local2Name}</b> 🔒</span><button type="button" id="fx-l2-edit" class="fx-l2-btn">이름 수정</button></div>`
+    : `<button type="button" id="fx-l2-set" class="fx-l2-add">＋ 경유 통화(현지화2) 설정</button>`;
+  box.innerHTML = html;
+}
+
+// [§14] 현지화2(경유 통화) 이름 설정/변경 — 서버 fxRenameCurrency 로 시트 J4·D열 일괄 갱신
+async function setLocal2NamePrompt(){
+  if(!navigator.onLine){ toast("경유 통화 설정은 연결된 상태에서만 가능해요"); return; }
+  const cfg=SYNC[team];
+  if(!cfg || !cfg.url){ toast("동기화 URL이 설정되지 않았어요"); return; }
+  const cur = local2Name || "";
+  const msg = cur
+    ? `경유 통화(현지화2) 이름 변경\n현재: ${cur}\n\n새 이름을 입력하세요 (기존 환전 기록도 같이 바뀝니다)`
+    : `경유 통화(현지화2) 이름을 입력하세요.\n달러 외에 거쳐가는 현지 통화 (예: THB, USD)`;
+  let v = prompt(msg, cur);
+  if(v===null) return;
+  v = v.trim();
+  if(!v || v===cur) return;
+  const taken = ["원화","달러",(LOCAL1[team]||"")].filter(Boolean);
+  if(taken.includes(v)){ toast("이미 쓰는 통화명이에요"); return; }
+  try{
+    const r = await postAction(cfg, { secret:cfg.secret, action:"fxRenameCurrency", team, slot:"local2", oldName:cur, newName:v });
+    if(r && r.ok){
+      local2Name = v; localStorage.setItem("igw_local2_"+team, v);
+      seedRateCfg(); fillCurrencies(); renderFxRates();
+      await fxRefresh(false);
+      toast(cur ? "통화명 변경됨" : "경유 통화 설정됨");
+    } else { toast("설정 실패: "+((r&&r.error)||"서버 오류")); }
+  }catch(err){ toast("설정 중 오류 — 다시 시도하세요"); console.error(err); }
+}
+
+// [§14] 환전 입력 미리보기 — 이번 거래 기준 단순 환율(참고용)
+function fxPreview(){
+  const el=$("fx-preview"); if(!el) return;
+  const fa=Number($("fx-from-amt").value||0), ta=Number($("fx-to-amt").value||0);
+  const fc=$("fx-from-cur").value, tc=$("fx-to-cur").value;
+  if(!fa||!ta){ el.textContent=""; el.className="krw"; return; }
+  if(fc==="원화" && tc!=="원화"){
+    el.textContent=`이번 거래: 1 ${curLabel_(tc)} = ${(fa/ta).toLocaleString(undefined,{maximumFractionDigits:4})}원`;
+    el.className="krw ok";
+  } else if(tc==="원화" && fc!=="원화"){
+    el.textContent=`이번 거래: 1 ${curLabel_(fc)} = ${(ta/fa).toLocaleString(undefined,{maximumFractionDigits:4})}원 (반납)`;
+    el.className="krw ok";
+  } else {
+    el.textContent=`경유 환전 (${curLabel_(fc)}→${curLabel_(tc)}) — 평균환율은 연결 시 시트가 계산`;
+    el.className="krw warn";
+  }
+}
+
+// [§14] 환전 사진 추가/표시 (원장과 동일 파이프라인: 1280·0.7·base64)
+async function fxAddPhotos(files){
+  let skipped=0;
+  for(const f of files){
+    const blob=await compress(f); if(!blob){ skipped++; continue; }
+    const b64=await blobToB64(blob); if(!b64){ skipped++; continue; }
+    fxPhotos.push({ blob, b64, size:blob.size, url:URL.createObjectURL(blob) });
+  }
+  renderFxPhotos();
+  if(skipped) toast(`사진 ${skipped}장은 형식을 변환할 수 없어 제외됐어요. 다시 촬영해 주세요.`);
+}
+function renderFxPhotos(){
+  const box=$("fx-photos");
+  box.querySelectorAll(".thumb-box").forEach(n=>n.remove());
+  const add=box.querySelector(".addphoto");
+  fxPhotos.forEach((p,i)=>{
+    const d=document.createElement("div"); d.className="thumb-box";
+    d.innerHTML=`<img class="thumb" src="${p.url}"><div class="thumb-x" data-i="${i}">×</div>`;
+    box.insertBefore(d, add);
+  });
+}
+
+// [§14] 환전 저장 (신규)
+async function fxSaveNew(){
+  const fa=$("fx-from-amt").value.trim(), ta=$("fx-to-amt").value.trim();
+  if(!fa || !ta){ toast("준 금액과 받은 금액을 입력하세요"); return; }
+  const fc=$("fx-from-cur").value, tc=$("fx-to-cur").value;
+  if(fc===tc){ toast("준 통화와 받은 통화가 같아요"); return; }
+  $("btn-fx-save").disabled=true;
+  try{
+    const entry={
+      id: Date.now()+"-"+Math.random().toString(36).slice(2,7)+"x",
+      team, date:$("fx-date").value,
+      fromCurrency:fc, fromAmount:Number(fa),
+      toCurrency:tc, toAmount:Number(ta),
+      memo:$("fx-memo").value.trim(),
+      photos: fxPhotos.map(p=>({ b64:p.b64, size:p.size })),
+      syncState:"대기", createdAt:Date.now()
+    };
+    await fxSave(entry);
+    fxResetForm();
+    toast("환전 저장됨");
+    await renderFxList();
+    if(navigator.onLine) setTimeout(()=>fxSyncNow(false), 300);
+  }catch(err){ toast("저장 실패 — 다시 시도하세요"); console.error(err); }
+  finally{ $("btn-fx-save").disabled=false; }
+}
+function fxResetForm(){
+  $("fx-from-amt").value=""; $("fx-to-amt").value=""; $("fx-memo").value="";
+  fxPhotos.forEach(p=>URL.revokeObjectURL(p.url)); fxPhotos=[]; renderFxPhotos();
+  $("fx-date").value=todayStr();
+  fxPreview();
 }
 
 function setType(t){
@@ -533,7 +760,7 @@ function switchTab(which){
   $("tab-list").classList.toggle("on", which==="list");
   $("view-input").classList.toggle("hidden", which!=="input");
   $("view-list").classList.toggle("hidden", which!=="list");
-  $("view-rates").classList.add("hidden");
+  $("view-fx").classList.add("hidden");
   if(which==="list") renderList();
 }
 
@@ -959,6 +1186,147 @@ function setSyncing(on){
 }
 
 /* =====================================================================
+   [§14] 환전 동기화 — fxCreate / fxDelete / fxPull(rates+머지)
+   ===================================================================== */
+function setFxSyncing(on){ const b=$("btn-fx-sync"); if(!b) return; b.disabled=on; b.textContent=on?"동기화 중…":"동기화"; }
+
+function fxSerialize_(e){
+  const photos=(e.photos||[]).filter(p=>!(p instanceof Blob)).map(p=>({ data:p.b64, size:p.size }));
+  return { id:e.id, team:e.team, date:e.date, fromCurrency:e.fromCurrency, fromAmount:e.fromAmount,
+           toCurrency:e.toCurrency, toAmount:e.toAmount, memo:e.memo, photos };
+}
+
+// 미동기화 환전 올리기 (대기→fxCreate / 삭제대기→fxDelete)
+async function fxSyncNow(manual){
+  if(fxSyncing || fxPulling) return;
+  const cfg=SYNC[team];
+  if(!cfg || !cfg.url){ if(manual) toast("동기화 URL이 설정되지 않았어요"); return; }
+  if(!navigator.onLine){ if(manual) toast("인터넷에 연결돼 있지 않아요"); return; }
+  const pending=(await fxGetAll()).filter(e=>e.syncState!=="완료").sort((a,b)=>a.createdAt-b.createdAt);
+  if(pending.length===0){ if(manual) toast("동기화할 환전 내역이 없어요"); return; }
+
+  fxSyncing=true; setFxSyncing(true);
+  let ok=0;
+  for(const e of pending){
+    try{
+      let r;
+      if(e.syncState==="삭제대기"){
+        r=await postAction(cfg, { action:"fxDelete", secret:cfg.secret, team:e.team, id:e.id });
+        if(r && r.ok){ await fxDel(e.id); ok++; }
+        else { toast("동기화 중단: "+((r&&r.error)||"서버 오류")); break; }
+      } else {
+        r=await postAction(cfg, { action:"fxCreate", secret:cfg.secret, entry: fxSerialize_(e) });
+        if(r && r.ok){ e.syncState="완료"; e.photoFail=(r.photoFail||0)>0; e.syncedRow=r.row; await fxSave(e); ok++; }
+        else { toast("동기화 중단: "+((r&&r.error)||"서버 오류")); break; }
+      }
+      $("fx-sync-status").textContent=`올리는 중… ${ok}/${pending.length}`;
+    }catch(err){ toast("연결이 끊겨 중단됐어요 (다음에 이어서)"); break; }
+  }
+  fxSyncing=false; setFxSyncing(false);
+  $("fx-sync-status").textContent="";
+  if(ok>0 && navigator.onLine) await fxRefresh(false);   // 환전이 올라갔으면 환율도 바뀜 → 갱신
+  await renderFxList();
+  if(ok>0) toast(`환전 ${ok}/${pending.length}건 완료`);
+}
+
+// 내려받기: rates 갱신 + 환전 목록 머지
+async function fxRefresh(manual){
+  if(fxPulling || fxSyncing) return null;
+  const cfg=SYNC[team];
+  if(!cfg || !cfg.url){ if(manual) toast("동기화 URL이 설정되지 않았어요"); return null; }
+  if(!navigator.onLine){ if(manual) toast("인터넷에 연결돼 있지 않아요"); return null; }
+  fxPulling=true;
+  try{
+    const res=await postAction(cfg, { secret:cfg.secret, action:"fxPull", team });
+    if(!res || !res.ok){ if(manual) toast("내려받기 실패: "+((res&&res.error)||"서버 오류")); return null; }
+    if(res.rates) applyRates(res.rates);
+    const stat=await fxMerge_(res.rows||[]);
+    await renderFxList();
+    if(manual) toast("환율·환전 내역 갱신됨");
+    return stat;
+  }catch(err){ if(manual) toast("내려받기 오류 — 다시 시도하세요"); console.error("[fxRefresh]",err); return null; }
+  finally{ fxPulling=false; }
+}
+
+function fxRowToEntry_(r){
+  return { id:String(r.id), team, date:r.date||"",
+    fromCurrency:r.fromCurrency||"", fromAmount:Number(r.fromAmount)||0,
+    toCurrency:r.toCurrency||"", toAmount:Number(r.toAmount)||0,
+    memo:r.memo||"", photos:[], sheetPhoto:r.photo||"",
+    syncState:"완료", syncedRow:r.row, createdAt:Date.now() };
+}
+function fxApply_(local, r){
+  local.date=r.date||""; local.fromCurrency=r.fromCurrency||""; local.fromAmount=Number(r.fromAmount)||0;
+  local.toCurrency=r.toCurrency||""; local.toAmount=Number(r.toAmount)||0; local.memo=r.memo||"";
+  local.syncedRow=r.row; if(r.photo) local.sheetPhoto=r.photo;
+  if(local.mirrorFlag) delete local.mirrorFlag;
+  return local;
+}
+async function fxMerge_(rows){
+  const localAll=await fxGetAll();
+  const byId=new Map(localAll.map(e=>[String(e.id), e]));
+  const sheetIds=new Set(rows.map(r=>String(r.id)).filter(Boolean));
+  let added=0, updated=0, kept=0, orphan=0;
+  for(const r of rows){
+    const id=String(r.id||""); if(!id) continue;
+    const local=byId.get(id);
+    if(!local){ await fxSave(fxRowToEntry_(r)); added++; continue; }
+    if((local.syncState||"대기")==="완료"){ await fxSave(fxApply_(local,r)); updated++; }
+    else kept++;
+  }
+  for(const e of localAll){
+    if(sheetIds.has(String(e.id||""))) continue;
+    if((e.syncState||"대기")==="완료"){ if(e.mirrorFlag!=="시트에없음"){ e.mirrorFlag="시트에없음"; await fxSave(e); } orphan++; }
+  }
+  return { added, updated, kept, orphan };
+}
+
+async function renderFxList(){
+  const all=(await fxGetAll()).sort((a,b)=>b.createdAt-a.createdAt);
+  const pend=all.filter(e=>e.syncState!=="완료").length;
+  const cEl=$("fx-count"); if(cEl) cEl.textContent=`환전 ${all.length}건 · 미동기화 ${pend}건`;
+  const box=$("fx-list"); if(!box) return;
+  if(all.length===0){ box.innerHTML=`<div class="empty">아직 환전 내역이 없어요.<br>위에서 환전 거래를 입력해보세요.</div>`; return; }
+  box.innerHTML="";
+  all.forEach(e=>{
+    const s=e.syncState||"대기";
+    const badge = s==="완료" ? `<span class="bd bd-inc">● 완료</span>`
+      : s==="삭제대기" ? `<span class="bd bd-del">삭제 대기</span>`
+      : `<span class="bd bd-wait">● 대기</span>`;
+    const imgs=(e.photos||[]).map(p=>{
+      const src=(p && p.b64) ? "data:image/jpeg;base64,"+p.b64 : "";
+      return src ? `<img class="thumb" src="${src}" onerror="imgBroken(this)">` : "";
+    }).join("");
+    const d=document.createElement("div"); d.className="item"; d.dataset.fxid=e.id;
+    d.innerHTML=`
+      <div class="top">
+        <div style="min-width:0">
+          <div class="num">${e.date||"-"}</div>
+          <div class="acct">${(e.fromAmount||0).toLocaleString()} ${curLabel_(e.fromCurrency)} <span class="fx-arrow">→</span> ${(e.toAmount||0).toLocaleString()} ${curLabel_(e.toCurrency)}</div>
+        </div>
+        <button class="more-btn" data-fxid="${e.id}" aria-label="삭제">⋯</button>
+      </div>
+      <div class="badges">${badge}${e.mirrorFlag?`<span class="bd bd-mirror">⚠ ${e.mirrorFlag}</span>`:""}</div>
+      ${imgs ? `<div class="imgs">${imgs}</div>` : (e.sheetPhoto ? sheetPhotoLinks_(e.sheetPhoto) : "")}
+      ${e.memo?`<div class="memo">📝 ${e.memo}</div>`:""}`;
+    box.appendChild(d);
+  });
+}
+
+// 환전 삭제 (완료→삭제대기 후 동기화 / 미동기화→즉시 제거)
+async function fxDeleteCard(id){
+  const all=await fxGetAll(); const e=all.find(x=>x.id===id); if(!e) return;
+  if(!confirm("이 환전 내역을 삭제할까요?")) return;
+  if((e.syncState||"대기")==="완료"){
+    e.syncState="삭제대기"; await fxSave(e);
+    await renderFxList();
+    if(navigator.onLine) await fxSyncNow(false);
+  } else {
+    await fxDel(id); await renderFxList(); toast("삭제됨");
+  }
+}
+
+/* =====================================================================
    수정 모드 / 액션 시트 (Phase 1)
    ===================================================================== */
 function openEdit(entry){
@@ -1225,11 +1593,29 @@ function bind(){
   $("btn-edit-cancel").onclick=()=>{ cancelEdit(); switchTab("list"); };
   $("btn-sync").onclick=()=>syncNow(true);
   $("btn-pull").onclick=()=>pullNow(true);
-  $("btn-rates").onclick=openRates;
-  $("btn-rates-save").onclick=saveRates;
-  $("btn-rates-close").onclick=()=>switchTab("input");
+  $("btn-rates").onclick=openFx;
   $("f-amount").oninput=updatePreview;
   $("f-currency").onchange=updatePreview;
+  // [§14] 환전 화면
+  $("btn-fx-close").onclick=()=>switchTab("input");
+  $("btn-fx-save").onclick=fxSaveNew;
+  $("btn-fx-sync").onclick=()=>fxSyncNow(true);
+  $("btn-fx-pull").onclick=()=>fxRefresh(true);
+  $("fx-from-amt").oninput=fxPreview; $("fx-to-amt").oninput=fxPreview;
+  $("fx-from-cur").onchange=fxPreview; $("fx-to-cur").onchange=fxPreview;
+  $("fx-rates").onclick=e=>{
+    if(e.target.id==="fx-l2-set" || e.target.id==="fx-l2-edit") setLocal2NamePrompt();
+  };
+  $("fx-photo").onchange=e=>{ if(e.target.files.length) fxAddPhotos(e.target.files); e.target.value=""; };
+  $("fx-photos").onclick=e=>{
+    if(e.target.classList.contains("thumb-x")){
+      const i=+e.target.dataset.i; URL.revokeObjectURL(fxPhotos[i].url); fxPhotos.splice(i,1); renderFxPhotos();
+    }
+  };
+  $("fx-list").onclick=e=>{
+    const more=e.target.closest(".more-btn");
+    if(more && more.dataset.fxid){ fxDeleteCard(more.dataset.fxid); return; }
+  };
   $("photos").onclick=e=>{
     if(e.target.classList.contains("thumb-x")){
       const i=+e.target.dataset.i; URL.revokeObjectURL(photos[i].url); photos.splice(i,1); renderPhotos();
@@ -1340,7 +1726,7 @@ showAppVersion();
 if("serviceWorker" in navigator) navigator.serviceWorker.ready.then(showAppVersion).catch(()=>{});
 
 /* 연결이 돌아오면 자동으로 동기화 재시도 */
-window.addEventListener("online", ()=>{ if(team) syncNow(false); });
+window.addEventListener("online", ()=>{ if(team){ syncNow(false); fxSyncNow(false); } });
 </script>
 </body>
 </html>
