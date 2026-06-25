@@ -179,6 +179,10 @@
     gap:12px; box-shadow:0 8px 30px rgba(0,0,0,.3); z-index:1100; font-size:14px}
   .updbar button{background:#fff; color:#111827; border:none; border-radius:10px;
     padding:8px 14px; font-size:14px; font-weight:700; cursor:pointer}
+
+  /* 버전 배지 (운영자 디버깅용 — 활성 sw 캐시 버전 표시) */
+  .appver{margin-top:16px; text-align:center; font-size:11px; color:var(--muted);
+    opacity:.6; -webkit-user-select:text; user-select:text}
 </style>
 </head>
 <body>
@@ -287,6 +291,7 @@
       <div class="row2"><div><input type="text" id="r2-name" placeholder="예: BAHT" autocapitalize="characters"></div><div><input type="number" id="r2-rate" inputmode="decimal" placeholder="예: 36"></div></div>
       <button class="save" id="btn-rates-save">환율 저장</button>
       <button class="del" id="btn-rates-close" style="display:block; margin:12px auto 0">닫기</button>
+      <div class="appver" id="appver"></div>
     </div>
   </div>
 
@@ -1163,6 +1168,19 @@ function showUpdateBar(){
   bar.querySelector("button").addEventListener("click", ()=>location.reload());
   document.body.appendChild(bar);
 }
+
+/* 버전 배지 — 활성 sw 캐시 이름에서 vN을 읽어 표시 (sw.js CACHE만 올리면 자동 반영) */
+async function showAppVersion(){
+  const el = document.getElementById("appver");
+  if(!el) return;
+  try{
+    const keys = await caches.keys();
+    const k = keys.find(x=>x.startsWith("igw-mission-v"));
+    el.textContent = k ? k.replace("igw-mission-","") : "";
+  }catch(_){ el.textContent=""; }
+}
+showAppVersion();
+if("serviceWorker" in navigator) navigator.serviceWorker.ready.then(showAppVersion).catch(()=>{});
 
 /* 연결이 돌아오면 자동으로 동기화 재시도 */
 window.addEventListener("online", ()=>{ if(team) syncNow(false); });
