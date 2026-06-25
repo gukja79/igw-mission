@@ -56,7 +56,7 @@ function doPost(e){
     const body = JSON.parse(e.postData.contents);
     if(body.secret !== SECRET) return json({ ok:false, error:"인증 실패" });
 
-    // [Phase 2] 내려받기(pull): 시트 전체를 앱 거울용 JSON 으로 반환 (읽기 전용)
+    // [Phase 2] 내려받기(pull): 시트 전체를 앱 거울용 JSON 으로 반환 + 미완성행 L·M 보정(backfill)
     if(body.action === "pull") return pullAll_(body);
 
     // 사진만 다시 올리기 (행은 그대로, K열만 교체)
