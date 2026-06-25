@@ -171,6 +171,14 @@
   /* 깨진 b64 폴백 박스 */
   .img-broken{display:inline-flex; align-items:center; justify-content:center;
     background:var(--fill); color:var(--muted); font-size:11px; padding:4px; text-align:center}
+
+  /* 업데이트 안내 바 */
+  .updbar{position:fixed; left:12px; right:12px; bottom:calc(env(safe-area-inset-bottom) + 12px);
+    max-width:456px; margin:0 auto; background:#111827; color:#fff; border-radius:14px;
+    padding:12px 14px; display:flex; align-items:center; justify-content:space-between;
+    gap:12px; box-shadow:0 8px 30px rgba(0,0,0,.3); z-index:1100; font-size:14px}
+  .updbar button{background:#fff; color:#111827; border:none; border-radius:10px;
+    padding:8px 14px; font-size:14px; font-weight:700; cursor:pointer}
 </style>
 </head>
 <body>
@@ -1131,7 +1139,29 @@ function bind(){
 
 /* 서비스워커 (오프라인에서도 앱이 열리도록) */
 if("serviceWorker" in navigator){
-  window.addEventListener("load",()=>navigator.serviceWorker.register("sw.js").catch(()=>{}));
+  window.addEventListener("load", async ()=>{
+    try{
+      const reg = await navigator.serviceWorker.register("sw.js");
+      // 새 SW 설치 감지 → 새로고침 안내. (이 코드가 깔린 v11 이후 배포부터 동작)
+      reg.addEventListener("updatefound", ()=>{
+        const nw = reg.installing;
+        if(!nw) return;
+        nw.addEventListener("statechange", ()=>{
+          if(nw.state === "installed" && navigator.serviceWorker.controller){
+            showUpdateBar();
+          }
+        });
+      });
+    }catch(_){}
+  });
+}
+function showUpdateBar(){
+  if(document.getElementById("updbar")) return;
+  const bar = document.createElement("div");
+  bar.id = "updbar"; bar.className = "updbar";
+  bar.innerHTML = `<span>새 버전이 있어요</span><button type="button">새로고침</button>`;
+  bar.querySelector("button").addEventListener("click", ()=>location.reload());
+  document.body.appendChild(bar);
 }
 
 /* 연결이 돌아오면 자동으로 동기화 재시도 */
