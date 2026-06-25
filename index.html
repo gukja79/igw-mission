@@ -167,6 +167,10 @@
     opacity:0; transition:.25s; pointer-events:none; z-index:50}
   #toast.show{opacity:1; transform:translateX(-50%) translateY(0)}
   .hidden{display:none!important}
+
+  /* 깨진 b64 폴백 박스 */
+  .img-broken{display:inline-flex; align-items:center; justify-content:center;
+    background:var(--fill); color:var(--muted); font-size:11px; padding:4px; text-align:center}
 </style>
 </head>
 <body>
@@ -619,7 +623,7 @@ async function renderList(){
     else { amtMain = `<span class="fx">${e.amount.toLocaleString()} ${curLabel(e.currency)}</span>`; if(e.krw!=null) amtSub = e.krw.toLocaleString()+"원"; }
     const imgs = (e.photos||[]).map((p,idx)=>{
       const src = (p instanceof Blob) ? URL.createObjectURL(p) : (p && p.b64 ? "data:image/jpeg;base64,"+p.b64 : "");
-      return src ? `<img class="thumb" data-id="${e.id}" data-idx="${idx}" src="${src}">` : "";
+      return src ? `<img class="thumb" data-id="${e.id}" data-idx="${idx}" src="${src}" onerror="imgBroken(this)">` : "";
     }).join("");
     const s = e.syncState || "대기";
     const stateBadge =
@@ -661,6 +665,15 @@ let toastT;
 function toast(msg){
   const t=$("toast"); t.textContent=msg; t.classList.add("show");
   clearTimeout(toastT); toastT=setTimeout(()=>t.classList.remove("show"),1900);
+}
+
+/* 깨진 b64 썸네일/사진 폴백 — 디코드 실패 시 깨진 아이콘 대신 안내 박스로 교체 */
+function imgBroken(el){
+  el.onerror = null;
+  const d = document.createElement("div");
+  d.className = el.className ? el.className + " img-broken" : "img-broken";
+  d.textContent = "⚠ 사진 깨짐";
+  el.replaceWith(d);
 }
 
 /* =====================================================================
@@ -935,7 +948,7 @@ function openLightbox(entry, startIdx){
   if(!photos.length) return;
   const imgs = photos.map(p=>{
     const src = (p instanceof Blob) ? URL.createObjectURL(p) : "data:image/jpeg;base64,"+p.b64;
-    return `<img src="${src}">`;
+    return `<img src="${src}" onerror="imgBroken(this)">`;
   }).join("");
   const box = document.createElement("div");
   box.className = "lightbox";
