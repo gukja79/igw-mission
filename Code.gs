@@ -38,10 +38,10 @@ const PHOTO_SHARE  = "private";             // "private"=나만 열람 / "view"=
 // 팀 → 스프레드시트 ID  (시트 URL의 /d/ 와 /edit 사이 문자열)
 const SHEETS = {
   "몽골":        "1xs9W_J6I1mlMDimLvrPKWLZOYeD_5NqgY86-qJByIhc",
-  "중국1":       "여기에-중국1-시트ID",
-  "인도네시아1": "여기에-인도네시아1-시트ID",
-  "말레이시아1": "여기에-말레이시아1-시트ID",
-  "스리랑카":    "여기에-스리랑카-시트ID"
+  "중국1":       "1d6Wy6XnR6H45WQs8cUhrVqgD-RHswz6foMGtGqhee1s",
+  "인도네시아1": "12ZlQ8bTSGSH7lQw2RlTwI-Jfg0Mblp6LsFX1cOeuMvg",
+  "말레이시아1": "1RNN6EXY4f6odesLD_81TDBABWhO4-F8jyZpRGerVwFs",
+  "스리랑카":    "1taiBNG4-x93FQgTricG1uoT7-qcG0Ej3AowxD4o9uy4"
 };
 
 // L열에 entry id 기록 → 수정·삭제·재시도 모두 id 로 행을 찾는다
