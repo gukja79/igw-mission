@@ -132,6 +132,24 @@
   .more-btn:active{background:#e5e7eb}
   .item .thumb{cursor:zoom-in}
   .item .memo{font-size:13px; color:var(--muted); margin-top:8px; line-height:1.5; word-break:break-word}
+
+  /* 내역 필터 바 (계정과목 + 합계) */
+  .lf{margin:2px 0 12px}
+  .lf-seg{display:flex; gap:6px; margin-bottom:8px}
+  .lf-seg button{flex:1; padding:10px; border:1.5px solid var(--line); border-radius:10px; background:var(--fill);
+    font-size:14px; font-weight:600; color:var(--muted); cursor:pointer}
+  .lf-seg button.on{background:#eef0ff; border-color:var(--accent); color:var(--accent)}
+  #lf-exp.on{background:var(--red-bg); border-color:var(--red); color:var(--red)}
+  #lf-inc.on{background:var(--grn-bg); border-color:var(--grn); color:var(--grn)}
+  .lf-acct{margin-bottom:8px}
+  .lf-sum{display:flex; align-items:baseline; flex-wrap:wrap; gap:6px; padding:2px 2px 0}
+  .lf-sum-label{font-size:13px; color:var(--muted)}
+  .lf-sum-amt{font-size:18px; font-weight:700; color:var(--ink)}
+  .lf-sum-cnt{font-size:12px; color:var(--muted)}
+  .lf-sum-exp{font-size:14px; font-weight:700; color:var(--red)}
+  .lf-sum-inc{font-size:14px; font-weight:700; color:var(--grn)}
+  .lf-sum-dot{color:var(--muted)}
+
   /* 사진 크게 보기(라이트박스) */
   .lightbox{position:fixed; inset:0; background:rgba(0,0,0,.9); z-index:1000;
     display:flex; flex-direction:column; align-items:center; justify-content:center; gap:14px;
@@ -314,6 +332,15 @@
         </div>
       </div>
       <div id="sync-status"></div>
+      <div id="list-filter" class="lf hidden">
+        <div class="lf-seg">
+          <button type="button" id="lf-all" class="on">전체</button>
+          <button type="button" id="lf-exp">지출</button>
+          <button type="button" id="lf-inc">수입</button>
+        </div>
+        <select id="lf-acct" class="lf-acct hidden"></select>
+        <div id="lf-sum" class="lf-sum"></div>
+      </div>
       <div id="list"></div>
       <input type="file" id="rephoto-input" accept="image/*" multiple class="hidden">
       <input type="file" id="addphoto-input" accept="image/*" multiple class="hidden">
@@ -491,6 +518,8 @@ let rateCfg = {};          // 통화별 환율/이름 (원화 환산 표시용, 
 let rephotoTargetId = null;
 let editingId = null;        // 수정 모드 대상 id (null=새 입력)
 let actionTargetId = null;   // 액션 시트 대상 id
+let listSeg = "전체";        // [내역 필터] 전체 / 지출 / 수입
+let listAcct = "";           // [내역 필터] 선택된 계정과목 (빈값=세그먼트 전체)
 let fxPhotos = [];           // [§14] 환전 입력 사진 [{blob,b64,size,url}]
 let fxSyncing = false;       // 환전 동기화 진행 중
 let fxPulling = false;       // 환전 내려받기 진행 중
@@ -925,6 +954,7 @@ async function save(){
       if(e.syncState === "완료") e.syncState = "수정대기";
 
       await saveEntry(e);
+      ensureVisibleAfterSave_(e);
       const no = e.receiptNo;
       cancelEdit();
       switchTab("list");
@@ -952,6 +982,7 @@ async function save(){
       };
       await saveEntry(entry);
       localStorage.setItem("igw_seq_"+team, String(seq));
+      ensureVisibleAfterSave_(entry);
       resetForm();
       toast(`저장됨 · 영수증 #${seq}`);
     }
@@ -982,20 +1013,96 @@ function sheetPhotoLinks_(raw){
   return `<div class="meta sheet-photos">${links}</div>`;
 }
 
+/* ===== 내역 필터 (계정과목별 보기 + 계정별 합계) — 표시 전용, 동기화/내려받기는 항상 전체 대상 ===== */
+// 수입/지출 판별 — 계정과목 접두사 기준(드롭다운 그룹과 1:1)
+function isIncomeEntry(e){ return String((e&&e.account)||"").startsWith("수입"); }
+
+// 현재 세그먼트/계정 필터 통과 여부
+function passesListFilter_(e){
+  if(listSeg==="지출" && isIncomeEntry(e)) return false;
+  if(listSeg==="수입" && !isIncomeEntry(e)) return false;
+  if(listSeg!=="전체" && listAcct && e.account!==listAcct) return false;
+  return true;
+}
+
+// 세그먼트 active 표시 + 계정 드롭다운 옵션 재생성 + 합계 갱신
+function applyListFilterUI_(all){
+  const bar=$("list-filter");
+  if(bar) bar.classList.toggle("hidden", all.length===0);
+  $("lf-all").classList.toggle("on", listSeg==="전체");
+  $("lf-exp").classList.toggle("on", listSeg==="지출");
+  $("lf-inc").classList.toggle("on", listSeg==="수입");
+  const sel=$("lf-acct");
+  if(listSeg==="전체"){
+    listAcct="";
+    if(sel) sel.classList.add("hidden");
+  } else if(sel){
+    const subset=all.filter(e=> listSeg==="지출" ? !isIncomeEntry(e) : isIncomeEntry(e));
+    const counts={};
+    subset.forEach(e=>{ const a=e.account||""; counts[a]=(counts[a]||0)+1; });
+    if(listAcct && !counts[listAcct]) listAcct="";   // 그 계정이 더는 없으면 전체로 폴백
+    const order = listSeg==="지출" ? ACCOUNTS.지출 : ACCOUNTS.수입;
+    const present = order.filter(a=>counts[a]>0);
+    let html=`<option value="">${listSeg} 전체 (${subset.length})</option>`;
+    present.forEach(a=>{ html+=`<option value="${a}">${a} (${counts[a]})</option>`; });
+    sel.innerHTML=html;
+    sel.value=listAcct;
+    sel.classList.toggle("hidden", subset.length===0);
+  }
+  renderListSum_(all);
+}
+
+// 합계 줄 — 전체:지출/수입 따로 / 지출·수입:선택 계정(또는 전체) 합 + 건수
+function renderListSum_(all){
+  const el=$("lf-sum"); if(!el) return;
+  const won = n => Math.round(n).toLocaleString("ko-KR");
+  const sumKrw = arr => arr.reduce((s,e)=> s + (Number(e.krw)||0), 0);
+  if(listSeg==="전체"){
+    const exp=all.filter(e=>!isIncomeEntry(e)), inc=all.filter(e=>isIncomeEntry(e));
+    el.innerHTML = `<span class="lf-sum-exp">지출 ${won(sumKrw(exp))}원</span>`
+                 + `<span class="lf-sum-dot">·</span>`
+                 + `<span class="lf-sum-inc">수입 ${won(sumKrw(inc))}원</span>`;
+  } else {
+    const subset=all.filter(e=> listSeg==="지출" ? !isIncomeEntry(e) : isIncomeEntry(e));
+    const view = listAcct ? subset.filter(e=>e.account===listAcct) : subset;
+    const label = listAcct || `${listSeg} 전체`;
+    el.innerHTML = `<span class="lf-sum-label">${label} 합계</span>`
+                 + `<span class="lf-sum-amt">${won(sumKrw(view))}원</span>`
+                 + `<span class="lf-sum-cnt">· ${view.length}건</span>`;
+  }
+}
+
+// 세그먼트 선택
+function setListSeg_(seg){ listSeg=seg; listAcct=""; renderList(); }
+
+// 저장한 항목이 현재 필터에 가려지면 전체로 풀기 (방금 넣은 게 안 보이는 혼란 방지)
+function ensureVisibleAfterSave_(e){
+  if(!passesListFilter_(e)){ listSeg="전체"; listAcct=""; }
+}
+
 async function renderList(){
   const all = (await getAll()).filter(e=>e.team===team).sort((a,b)=>b.createdAt-a.createdAt);
   const pend = all.filter(e=>e.syncState!=="완료").length;
   $("list-count").textContent = `${team} · 총 ${all.length}건 · 미동기화 ${pend}건`;
   const scfg = SYNC[team];
   $("sync-status").textContent = (!scfg || !scfg.url) ? "⚠ 동기화 URL 미설정 (SYNC 설정 필요)" : "";
+
+  // [내역 필터] 세그먼트 active·드롭다운 옵션·합계 갱신 후, 보이는 항목만 추림
+  applyListFilterUI_(all);
+  const view = all.filter(passesListFilter_);
+
   const box=$("list");
   if(all.length===0){
     box.innerHTML=`<div class="empty">아직 저장된 내역이 없어요.<br>입력 탭에서 첫 영수증을 기록해보세요.</div>`;
     return;
   }
+  if(view.length===0){
+    box.innerHTML=`<div class="empty">이 분류에 해당하는 내역이 없어요.</div>`;
+    return;
+  }
   box.innerHTML="";
   const curLabel = k => k==="원화" ? "원화" : ((rateCfg[k]&&rateCfg[k].label) || (CURRENCIES.find(c=>c.key===k)||{label:k}).label);
-  all.forEach(e=>{
+  view.forEach(e=>{
     let amtMain, amtSub="";
     if(e.currency==="원화"){ amtMain = e.amount.toLocaleString()+"원"; }
     else { amtMain = `<span class="fx">${e.amount.toLocaleString()} ${curLabel(e.currency)}</span>`; if(e.krw!=null) amtSub = e.krw.toLocaleString()+"원"; }
@@ -1824,6 +1931,10 @@ function bind(){
   $("btn-edit-cancel").onclick=()=>{ cancelEdit(); switchTab("list"); };
   $("btn-sync").onclick=()=>syncNow(true);
   $("btn-pull").onclick=()=>pullNow(true);
+  $("lf-all").onclick=()=>setListSeg_("전체");
+  $("lf-exp").onclick=()=>setListSeg_("지출");
+  $("lf-inc").onclick=()=>setListSeg_("수입");
+  $("lf-acct").onchange=()=>{ listAcct=$("lf-acct").value; renderList(); };
   $("btn-rates").onclick=openFx;
   $("f-amount").oninput=()=>{ fmtAmountInput($("f-amount")); updatePreview(); };
   $("f-currency").onchange=updatePreview;
