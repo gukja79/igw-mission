@@ -984,7 +984,7 @@ function sheetPhotoLinks_(raw){
 }
 
 async function renderList(){
-  const all = (await getAll()).sort((a,b)=>b.createdAt-a.createdAt);
+  const all = (await getAll()).filter(e=>e.team===team).sort((a,b)=>b.createdAt-a.createdAt);
   const pend = all.filter(e=>e.syncState!=="완료").length;
   $("list-count").textContent = `${team} · 총 ${all.length}건 · 미동기화 ${pend}건`;
   const scfg = SYNC[team];
@@ -1098,7 +1098,7 @@ async function syncNow(manual){
   if(!cfg || !cfg.url){ if(manual) toast("동기화 URL이 설정되지 않았어요"); return; }
   if(!navigator.onLine){ if(manual) toast("인터넷에 연결돼 있지 않아요"); return; }
 
-  const pending = (await getAll()).filter(e=>e.syncState!=="완료").sort((a,b)=>a.createdAt-b.createdAt);
+  const pending = (await getAll()).filter(e=>e.team===team && e.syncState!=="완료").sort((a,b)=>a.createdAt-b.createdAt);
   if(pending.length===0){ if(manual) toast("동기화할 내역이 없어요"); return; }
 
   syncing=true; setSyncing(true);
@@ -1207,7 +1207,7 @@ function sheetDiffers_(e, r){
 
 // 핵심 머지 — 시트 rows 와 현재 IndexedDB 병합. {added,updated,kept,conflict,orphan} 반환
 async function mergeFromSheet_(rows){
-  const localAll = await getAll();
+  const localAll = (await getAll()).filter(e=>e.team===team);
   const byId = new Map(localAll.map(e=>[String(e.id), e]));
   const sheetIds = new Set(rows.map(r=>String(r.id)).filter(Boolean));
   const stat = { added:0, updated:0, kept:0, conflict:0, orphan:0 };
@@ -1306,7 +1306,7 @@ async function fxSyncNow(manual){
   const cfg=SYNC[team];
   if(!cfg || !cfg.url){ if(manual) toast("동기화 URL이 설정되지 않았어요"); return; }
   if(!navigator.onLine){ if(manual) toast("인터넷에 연결돼 있지 않아요"); return; }
-  const pending=(await fxGetAll()).filter(e=>e.syncState!=="완료").sort((a,b)=>a.createdAt-b.createdAt);
+  const pending=(await fxGetAll()).filter(e=>e.team===team && e.syncState!=="완료").sort((a,b)=>a.createdAt-b.createdAt);
   if(pending.length===0){ if(manual) toast("동기화할 환전 내역이 없어요"); return; }
 
   fxSyncing=true; setFxSyncing(true);
@@ -1376,7 +1376,7 @@ function fxApply_(local, r){
   return local;
 }
 async function fxMerge_(rows){
-  const localAll=await fxGetAll();
+  const localAll=(await fxGetAll()).filter(e=>e.team===team);
   const byId=new Map(localAll.map(e=>[String(e.id), e]));
   const sheetIds=new Set(rows.map(r=>String(r.id)).filter(Boolean));
   let added=0, updated=0, kept=0, orphan=0;
@@ -1395,7 +1395,7 @@ async function fxMerge_(rows){
 }
 
 async function renderFxList(){
-  const all=(await fxGetAll()).sort((a,b)=>b.createdAt-a.createdAt);
+  const all=(await fxGetAll()).filter(e=>e.team===team).sort((a,b)=>b.createdAt-a.createdAt);
   const pend=all.filter(e=>e.syncState!=="완료").length;
   const cEl=$("fx-count"); if(cEl) cEl.textContent=`환전 ${all.length}건 · 미동기화 ${pend}건`;
   const box=$("fx-list"); if(!box) return;
