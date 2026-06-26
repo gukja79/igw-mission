@@ -361,7 +361,6 @@
       <div class="list-head" style="margin-top:24px">
         <div class="count" id="fx-count"></div>
         <div class="head-btns">
-          <button class="syncbtn pullbtn" id="btn-fx-pull">내려받기</button>
           <button class="syncbtn" id="btn-fx-sync">동기화</button>
         </div>
       </div>
@@ -1833,7 +1832,6 @@ function bind(){
   $("btn-fx-edit-cancel").onclick=cancelFxEdit;
   $("btn-fx-save").onclick=fxSaveNew;
   $("btn-fx-sync").onclick=()=>fxSyncNow(true);
-  $("btn-fx-pull").onclick=()=>fxRefresh(true);
   $("fx-from-amt").oninput=()=>{ fmtAmountInput($("fx-from-amt")); fxPreview(); };
   $("fx-to-amt").oninput=()=>{ fmtAmountInput($("fx-to-amt")); fxPreview(); };
   $("fx-from-cur").onchange=fxPreview; $("fx-to-cur").onchange=fxPreview;
