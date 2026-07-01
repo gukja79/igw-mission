@@ -320,7 +320,7 @@ function deleteEntry_(body){
 }
 
 // [Phase 2] 내려받기(pull): 대상 시트의 모든 데이터 행을 앱이 거울로 읽을 형태로 반환.
-// + 보정: id(L) 비어 있고 A·B·C·D·G·H 가 모두 찬 '완성행'은 이때 L=id, M=영수증번호를
+// + 보정: id(L) 비어 있고 B·D·G·H(계정과목·내역·금액·통화)가 찬 '완성행'은 이때 L=id, M=영수증번호를
 //   자동 부여(위→아래 순). 누가 웹에서 입력했든 pull 한 번 거치면 빠짐없이 번호가 박힌다.
 //   번호 발급은 create 와 같은 nextReceiptNo_ + 같은 락 → 앱/웹 번호 안 겹침.
 function pullAll_(body){
@@ -347,7 +347,7 @@ function pullAll_(body){
     const n = last - FIRST_DATA_ROW + 1;
     const vals = sh.getRange(FIRST_DATA_ROW, 1, n, RECEIPTNO_COL).getValues();
 
-    // [Phase 2] 보정 대상 탐지: id(L) 비어 있고 A·B·C·D·G·H 가 모두 찬 완성행(위→아래)
+    // [Phase 2] 보정 대상 탐지: id(L) 비어 있고 B·D·G·H 가 찬 완성행(위→아래)
     const need = [];
     for(let i = 0; i < n; i++){
       const r = vals[i];
@@ -870,10 +870,11 @@ function cellFilled_(v){
   return String(v).trim() !== "";
 }
 
-// [Phase 2] '완성행' 판정: A·B·C·D·G·H 가 모두 채워졌는가 (E·F 는 수식, I·J 는 선택값이라 제외)
+// [Phase 2] '완성행' 판정: B·D·G·H(계정과목·내역·금액·통화)가 채워졌는가
+//   A(일자)·C(지원금/자부담)는 선택값이라 비어도 번호 발급, E·F 는 수식, I·J 도 선택값이라 제외
 function rowComplete_(r){
-  return cellFilled_(r[0]) && cellFilled_(r[1]) && cellFilled_(r[2]) &&
-         cellFilled_(r[3]) && cellFilled_(r[6]) && cellFilled_(r[7]);
+  return cellFilled_(r[1]) && cellFilled_(r[3]) &&
+         cellFilled_(r[6]) && cellFilled_(r[7]);
 }
 
 // [Phase 2] 보정행용 id 생성 — 앱 id 형식과 호환(밀리초-랜덤), 끝에 'w'로 웹 보정 표시
