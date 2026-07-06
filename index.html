@@ -73,6 +73,10 @@
   /* 사진 */
   .photos{display:flex; flex-wrap:wrap; gap:8px; margin-top:8px}
   .thumb{width:72px; height:72px; border-radius:10px; object-fit:cover; border:1px solid var(--line); position:relative}
+  .pdfbox{width:72px; height:72px; border-radius:10px; border:1px solid var(--line); background:#f6f7fb;
+    display:inline-flex; flex-direction:column; align-items:center; justify-content:center; gap:2px;
+    font-size:24px; color:#475569; vertical-align:top}
+  .pdfbox small{font-size:10px; font-weight:700; letter-spacing:.5px}
   .thumb-box{position:relative}
   .thumb-x{position:absolute; top:-6px; right:-6px; width:22px; height:22px; border-radius:50%;
     background:#111827; color:#fff; border:2px solid #fff; font-size:13px; line-height:18px; text-align:center; cursor:pointer}
@@ -315,7 +319,7 @@
       <div id="photo-section">
         <label class="fld">영수증 사진</label>
         <div class="photos" id="photos">
-          <label class="addphoto">＋ 사진<input type="file" id="f-photo" accept="image/*" multiple class="hidden"></label>
+          <label class="addphoto">＋ 사진<input type="file" id="f-photo" accept="image/*,application/pdf" multiple class="hidden"></label>
         </div>
       </div>
 
@@ -342,8 +346,8 @@
         <div id="lf-sum" class="lf-sum"></div>
       </div>
       <div id="list"></div>
-      <input type="file" id="rephoto-input" accept="image/*" multiple class="hidden">
-      <input type="file" id="addphoto-input" accept="image/*" multiple class="hidden">
+      <input type="file" id="rephoto-input" accept="image/*,application/pdf" multiple class="hidden">
+      <input type="file" id="addphoto-input" accept="image/*,application/pdf" multiple class="hidden">
     </div>
 
     <!-- 환전 화면 (현재 환율 표시 + 환전 입력/목록) -->
@@ -379,7 +383,7 @@
       <div id="fx-photo-section">
         <label class="fld">사진 (선택)</label>
         <div class="photos" id="fx-photos">
-          <label class="addphoto">＋ 사진<input type="file" id="fx-photo" accept="image/*" multiple class="hidden"></label>
+          <label class="addphoto">＋ 사진<input type="file" id="fx-photo" accept="image/*,application/pdf" multiple class="hidden"></label>
         </div>
       </div>
 
@@ -444,7 +448,7 @@
     <button id="fx-pmgr-close" class="pmgr-close">닫기</button>
   </div>
 </div>
-<input type="file" id="fx-addphoto-input" accept="image/*" multiple class="hidden">
+<input type="file" id="fx-addphoto-input" accept="image/*,application/pdf" multiple class="hidden">
 
 <script>
 /* =====================================================================
@@ -531,6 +535,16 @@ let fxPmgrTargetId = null;   // [§14-2단계] 환전 사진관리 대상 id
 /* =====================================================================
    사진 압축 (찍는 순간 가볍게)
    ===================================================================== */
+/* [v27] PDF 첨부 — 압축 없이 원본 그대로 base64, 파일당 10MB 상한 */
+const MAX_PDF = 10 * 1024 * 1024;
+function isPdf_(f){ return !!f && (f.type === "application/pdf" || /\.pdf$/i.test(f.name || "")); }
+async function pdfItem_(f){
+  if(f.size > MAX_PDF){ toast(`PDF는 10MB 이하만 첨부할 수 있어요 (${f.name || "파일"})`); return null; }
+  const b64 = await blobToB64(f);
+  if(!b64){ toast("PDF를 읽을 수 없어 제외됐어요"); return null; }
+  return { b64, size: f.size };
+}
+
 function compress(file){
   return new Promise((res)=>{
     const img = new Image();
@@ -582,6 +596,7 @@ function startMain(){
   fillAccounts();
   fillCurrencies();
   $("f-date").value = todayStr();
+  restoreLastForm_();   // [v25] 마지막 선택(타입·계정·지원금·통화) 복원
   switchTab("input");
   if(navigator.onLine){
     setTimeout(()=>syncNow(false), 600);   // 열 때 자동 동기화 시도
@@ -774,6 +789,7 @@ function fxPreview(){
 async function fxAddPhotos(files){
   let skipped=0;
   for(const f of files){
+    if(isPdf_(f)){ const it=await pdfItem_(f); if(it) fxPhotos.push({ b64:it.b64, size:it.size, kind:"pdf", url:"" }); continue; }   // [v27]
     const blob=await compress(f); if(!blob){ skipped++; continue; }
     const b64=await blobToB64(blob); if(!b64){ skipped++; continue; }
     fxPhotos.push({ blob, b64, size:blob.size, url:URL.createObjectURL(blob) });
@@ -787,7 +803,9 @@ function renderFxPhotos(){
   const add=box.querySelector(".addphoto");
   fxPhotos.forEach((p,i)=>{
     const d=document.createElement("div"); d.className="thumb-box";
-    d.innerHTML=`<img class="thumb" src="${p.url}"><div class="thumb-x" data-i="${i}">×</div>`;
+    const inner = (p.kind==="pdf") ? `<span class="pdfbox">📄<small>PDF</small></span>`
+                                   : `<img class="thumb" src="${p.url}">`;
+    d.innerHTML=`${inner}<div class="thumb-x" data-i="${i}">×</div>`;
     box.insertBefore(d, add);
   });
 }
@@ -821,7 +839,7 @@ async function fxSaveNew(){
         fromCurrency:fc, fromAmount:fa,
         toCurrency:tc, toAmount:ta,
         memo:$("fx-memo").value.trim(),
-        photos: fxPhotos.map(p=>({ b64:p.b64, size:p.size })),
+        photos: fxPhotos.map(p=>({ b64:p.b64, size:p.size, kind:p.kind||"img" })),   // [v27]
         syncState:"대기", createdAt:Date.now()
       };
       await fxSave(entry);
@@ -835,7 +853,7 @@ async function fxSaveNew(){
 }
 function fxResetForm(){
   $("fx-from-amt").value=""; $("fx-to-amt").value=""; $("fx-memo").value="";
-  fxPhotos.forEach(p=>URL.revokeObjectURL(p.url)); fxPhotos=[]; renderFxPhotos();
+  fxPhotos.forEach(p=>{ if(p.url) URL.revokeObjectURL(p.url); }); fxPhotos=[]; renderFxPhotos();
   $("fx-date").value=todayStr();
   fxPreview();
 }
@@ -857,7 +875,7 @@ function openFxEdit(entry){
   $("fx-from-amt").value = fmtAmtStr(entry.fromAmount);
   $("fx-to-amt").value   = fmtAmtStr(entry.toAmount);
   $("fx-memo").value     = entry.memo || "";
-  fxPhotos.forEach(p=>URL.revokeObjectURL(p.url)); fxPhotos=[]; renderFxPhotos();
+  fxPhotos.forEach(p=>{ if(p.url) URL.revokeObjectURL(p.url); }); fxPhotos=[]; renderFxPhotos();
   $("fx-photo-section").classList.add("hidden");
   $("fx-edit-bar").classList.remove("hidden");
   $("btn-fx-save").textContent = "수정 저장";
@@ -900,6 +918,11 @@ function switchTab(which){
 async function addPhotos(files){
   let skipped=0;
   for(const f of files){
+    if(isPdf_(f)){                                     // [v27] PDF — 압축 없이 원본 그대로
+      const it = await pdfItem_(f);
+      if(it) photos.push({ b64:it.b64, size:it.size, kind:"pdf", url:"" });
+      continue;
+    }
     const blob = await compress(f);
     if(!blob){ skipped++; continue; }                 // 변환 안 되는 사진은 제외
     const b64 = await blobToB64(blob);                 // 캡처 직후(메모리 신선) 텍스트로 변환 → 아이폰 IndexedDB blob 손상 회피
@@ -916,7 +939,9 @@ function renderPhotos(){
   const add=box.querySelector(".addphoto");
   photos.forEach((p,i)=>{
     const d=document.createElement("div"); d.className="thumb-box";
-    d.innerHTML=`<img class="thumb" src="${p.url}"><div class="thumb-x" data-i="${i}">×</div>`;
+    const inner = (p.kind==="pdf") ? `<span class="pdfbox">📄<small>PDF</small></span>`
+                                   : `<img class="thumb" src="${p.url}">`;
+    d.innerHTML=`${inner}<div class="thumb-x" data-i="${i}">×</div>`;
     box.insertBefore(d, add);
   });
 }
@@ -959,6 +984,7 @@ async function save(){
       cancelEdit();
       switchTab("list");
       toast(`수정됨 · 영수증 #${no}`);
+      if(navigator.onLine) setTimeout(()=>syncNow(false), 300);   // [v26] 수정 직후 자동 동기화
     } else {
       // ----- 신규 -----
       const seq = (parseInt(localStorage.getItem("igw_seq_"+team)||"0",10))+1;
@@ -975,16 +1001,18 @@ async function save(){
         note: $("f-note").value.trim(),
         receipt: receiptYN,
         receiptNo: seq,
-        photos: photos.map(p=>({ b64:p.b64, size:p.size })),
+        photos: photos.map(p=>({ b64:p.b64, size:p.size, kind:p.kind||"img" })),   // [v27] kind=img/pdf
         photoCount: photos.length,
         syncState: "대기",
         createdAt: Date.now()
       };
       await saveEntry(entry);
       localStorage.setItem("igw_seq_"+team, String(seq));
+      saveLastForm_();                                   // [v25] 마지막 선택 기억
       ensureVisibleAfterSave_(entry);
       resetForm();
       toast(`저장됨 · 영수증 #${seq}`);
+      if(navigator.onLine) setTimeout(()=>syncNow(false), 300);   // [v26] 저장 직후 자동 동기화 (환전과 동일 패턴)
     }
   }catch(err){
     toast(editingId ? "수정 실패 — 다시 시도하세요" : "저장 실패 — 다시 시도하세요");
@@ -996,10 +1024,32 @@ async function save(){
 
 function resetForm(){
   $("f-desc").value=""; $("f-amount").value=""; $("f-note").value="";
-  $("f-currency").value="원화"; setReceipt("O");
-  photos.forEach(p=>URL.revokeObjectURL(p.url)); photos=[]; renderPhotos();
+  setReceipt("O");   // [v25] 통화는 리셋하지 않음 — 계정·지원금처럼 마지막 선택 유지
+  photos.forEach(p=>{ if(p.url) URL.revokeObjectURL(p.url); }); photos=[]; renderPhotos();
   $("f-date").value=todayStr();
   updatePreview();
+}
+
+/* [v25] 마지막 선택(타입·계정과목·지원금/자부담·통화) 기억 — 앱 재시작 후에도 복원.
+   회계가 같은 계정을 연속 입력할 때 매번 다시 고르지 않게. 신규 저장 시에만 기록. */
+function saveLastForm_(){
+  try{
+    localStorage.setItem("igw_lastform_"+team, JSON.stringify({
+      type, account:$("f-account").value, fund:$("f-fund").value, currency:$("f-currency").value
+    }));
+  }catch(_){}
+}
+function restoreLastForm_(){
+  try{
+    const lf = JSON.parse(localStorage.getItem("igw_lastform_"+team) || "null");
+    if(!lf) return;
+    if(lf.type==="지출" || lf.type==="수입") setType(lf.type);
+    const pick=(id,v)=>{ const s=$(id); if(v && s && [...s.options].some(o=>o.value===v)) s.value=v; };
+    pick("f-account", lf.account);     // 옵션에 없는 값(예: 현지화2 미설정)은 무시하고 기본값 유지
+    pick("f-fund", lf.fund);
+    pick("f-currency", lf.currency);
+    updatePreview();
+  }catch(_){}
 }
 
 /* 내역 목록 */
@@ -1106,9 +1156,11 @@ async function renderList(){
     let amtMain, amtSub="";
     if(e.currency==="원화"){ amtMain = e.amount.toLocaleString()+"원"; }
     else { amtMain = `<span class="fx">${e.amount.toLocaleString()} ${curLabel(e.currency)}</span>`; if(e.krw!=null) amtSub = e.krw.toLocaleString()+"원"; }
-    const imgs = (e.photos||[]).map((p,idx)=>{
+    let imgIdx = 0;   // [v27] 라이트박스용 인덱스는 이미지끼리만 셈 (PDF 제외)
+    const imgs = (e.photos||[]).map(p=>{
+      if(p && p.kind==="pdf") return `<span class="pdfbox">📄<small>PDF</small></span>`;
       const src = (p instanceof Blob) ? URL.createObjectURL(p) : (p && p.b64 ? "data:image/jpeg;base64,"+p.b64 : "");
-      return src ? `<img class="thumb" data-id="${e.id}" data-idx="${idx}" src="${src}" onerror="imgBroken(this)">` : "";
+      return src ? `<img class="thumb" data-id="${e.id}" data-idx="${imgIdx++}" src="${src}" onerror="imgBroken(this)">` : "";
     }).join("");
     const s = e.syncState || "대기";
     const stateBadge =
@@ -1177,7 +1229,7 @@ function blobToB64(blob){
 async function serialize(e){
   const photos=(e.photos||[])
     .filter(p=>!(p instanceof Blob))        // 구버전(blob) 항목은 무시 (옛 테스트 데이터)
-    .map(p=>({ data:p.b64, size:p.size }));
+    .map(p=>({ data:p.b64, size:p.size, kind:p.kind||"img" }));   // [v27] kind=img/pdf
   return { id:e.id, team:e.team, type:e.type, account:e.account, fund:e.fund,
            date:e.date, desc:e.desc, currency:e.currency, amount:e.amount,
            note:e.note, receipt:e.receipt, receiptNo:e.receiptNo, photos };
@@ -1401,7 +1453,7 @@ function setSyncing(on){
 function setFxSyncing(on){ const b=$("btn-fx-sync"); if(!b) return; b.disabled=on; b.textContent=on?"동기화 중…":"동기화"; }
 
 function fxSerialize_(e){
-  const photos=(e.photos||[]).filter(p=>!(p instanceof Blob)).map(p=>({ data:p.b64, size:p.size }));
+  const photos=(e.photos||[]).filter(p=>!(p instanceof Blob)).map(p=>({ data:p.b64, size:p.size, kind:p.kind||"img" }));   // [v27]
   return { id:e.id, team:e.team, date:e.date, fromCurrency:e.fromCurrency, fromAmount:e.fromAmount,
            toCurrency:e.toCurrency, toAmount:e.toAmount, memo:e.memo, photos };
 }
@@ -1514,6 +1566,7 @@ async function renderFxList(){
       : s==="삭제대기" ? `<span class="bd bd-del">삭제 대기</span>`
       : `<span class="bd bd-wait">● 대기</span>`;
     const imgs=(e.photos||[]).map(p=>{
+      if(p && p.kind==="pdf") return `<span class="pdfbox">📄<small>PDF</small></span>`;   // [v27]
       const src=(p && p.b64) ? "data:image/jpeg;base64,"+p.b64 : "";
       return src ? `<img class="thumb" src="${src}" onerror="imgBroken(this)">` : "";
     }).join("");
@@ -1601,15 +1654,17 @@ async function openFxPhotoMgr(entry){
 function closeFxPhotoMgr(){ $("fx-photo-mgr").classList.add("hidden"); fxPmgrTargetId=null; }
 function renderFxPhotoMgr(entry){
   const links=parseSheetLinks_(entry.sheetPhoto);
-  const b64s=(entry.photos||[]).filter(p=>p && p.b64).map(p=>p.b64);
-  const aligned=b64s.length===links.length;
+  const items=(entry.photos||[]).filter(p=>p && p.b64);   // [v27] kind 포함
+  const aligned=items.length===links.length;
   const online=navigator.onLine;
   const body=$("fx-pmgr-body");
   if(!links.length){ body.innerHTML=`<div class="pmgr-empty">아직 사진이 없어요.</div>`; }
   else {
     body.innerHTML=links.map((lk,i)=>{
       const thumb=aligned
-        ? `<img class="pmgr-thumb" src="data:image/jpeg;base64,${b64s[i]}" onerror="imgBroken(this)">`
+        ? (items[i].kind==="pdf"
+            ? `<a class="pmgr-open" href="${lk.url}" target="_blank" rel="noopener">📄 PDF ${i+1}</a>`
+            : `<img class="pmgr-thumb" src="data:image/jpeg;base64,${items[i].b64}" onerror="imgBroken(this)">`)
         : `<a class="pmgr-open" href="${lk.url}" target="_blank" rel="noopener">📎 사진 ${i+1}</a>`;
       return `<div class="pmgr-row">${thumb}<button class="pmgr-del" data-fileid="${lk.fileId}">삭제</button></div>`;
     }).join("");
@@ -1627,13 +1682,14 @@ async function fxPmgrAdd(files){
   toast("사진 추가하는 중…");
   const newPhotos=[]; let skipped=0;
   for(const f of files){
+    if(isPdf_(f)){ const it=await pdfItem_(f); if(it) newPhotos.push({ b64:it.b64, size:it.size, kind:"pdf" }); continue; }   // [v27]
     const blob=await compress(f); if(!blob){ skipped++; continue; }
     const b64=await blobToB64(blob); if(!b64){ skipped++; continue; }
     newPhotos.push({ b64, size:blob.size });
   }
   if(!newPhotos.length){ toast("추가할 사진이 없어요"); return; }
   const r=await postAction(cfg, { secret:cfg.secret, action:"fxAddPhotos",
-    entry:{ id:e.id, team, photos:newPhotos.map(p=>({ data:p.b64, size:p.size })) } });
+    entry:{ id:e.id, team, photos:newPhotos.map(p=>({ data:p.b64, size:p.size, kind:p.kind||"img" })) } });
   if(r && r.ok){
     e.sheetPhoto=r.photo||e.sheetPhoto;
     e.photos=(e.photos||[]).concat(newPhotos);
@@ -1679,7 +1735,7 @@ function openEdit(entry){
   $("f-note").value = entry.note || "";
   setReceipt(entry.receipt || "O");
   // 입력 폼의 새 사진 버퍼는 비움 (편집 모드에선 사진을 안 받음)
-  photos.forEach(p=>URL.revokeObjectURL(p.url)); photos=[]; renderPhotos();
+  photos.forEach(p=>{ if(p.url) URL.revokeObjectURL(p.url); }); photos=[]; renderPhotos();
   $("photo-section").classList.add("hidden");
   $("edit-bar").classList.remove("hidden");
   $("edit-no").textContent = String(entry.receiptNo);
@@ -1698,7 +1754,7 @@ function cancelEdit(){
 
 // [Phase 2-4] 사진 크게 보기 — 앱 안 전체화면 오버레이. 아무 데나 탭하면 닫힘.
 function openLightbox(entry, startIdx){
-  const photos = (entry.photos||[]).filter(p=>p && (p.b64 || p instanceof Blob));
+  const photos = (entry.photos||[]).filter(p=>p && p.kind!=="pdf" && (p.b64 || p instanceof Blob));   // [v27] PDF 제외
   if(!photos.length) return;
   const imgs = photos.map(p=>{
     const src = (p instanceof Blob) ? URL.createObjectURL(p) : "data:image/jpeg;base64,"+p.b64;
@@ -1763,15 +1819,17 @@ async function openPhotoMgr(entry){
 function closePhotoMgr(){ $("photo-mgr").classList.add("hidden"); pmgrTargetId = null; }
 function renderPhotoMgr(entry){
   const links = parseSheetLinks_(entry.sheetPhoto);
-  const b64s = (entry.photos||[]).filter(p=>p && p.b64).map(p=>p.b64);
-  const aligned = b64s.length === links.length;
+  const items = (entry.photos||[]).filter(p=>p && p.b64);   // [v27] kind 포함
+  const aligned = items.length === links.length;
   const online = navigator.onLine;
   const body = $("pmgr-body");
   if(!links.length){ body.innerHTML = `<div class="pmgr-empty">아직 사진이 없어요.</div>`; }
   else {
     body.innerHTML = links.map((lk,i)=>{
       const thumb = aligned
-        ? `<img class="pmgr-thumb" src="data:image/jpeg;base64,${b64s[i]}" onerror="imgBroken(this)">`
+        ? (items[i].kind==="pdf"
+            ? `<a class="pmgr-open" href="${lk.url}" target="_blank" rel="noopener">📄 PDF ${i+1}</a>`
+            : `<img class="pmgr-thumb" src="data:image/jpeg;base64,${items[i].b64}" onerror="imgBroken(this)">`)
         : `<a class="pmgr-open" href="${lk.url}" target="_blank" rel="noopener">📎 사진 ${i+1}</a>`;
       return `<div class="pmgr-row">${thumb}<button class="pmgr-del" data-fileid="${lk.fileId}">삭제</button></div>`;
     }).join("");
@@ -1789,13 +1847,14 @@ async function pmgrAdd(files){
   toast("사진 추가하는 중…");
   const newPhotos = []; let skipped = 0;
   for(const f of files){
+    if(isPdf_(f)){ const it = await pdfItem_(f); if(it) newPhotos.push({ b64:it.b64, size:it.size, kind:"pdf" }); continue; }   // [v27]
     const blob = await compress(f); if(!blob){ skipped++; continue; }
     const b64 = await blobToB64(blob); if(!b64){ skipped++; continue; }
     newPhotos.push({ b64, size: blob.size });
   }
   if(!newPhotos.length){ toast("추가할 사진이 없어요"); return; }
   const r = await postAction(cfg, { secret: cfg.secret, action: "addPhotos",
-    entry: { id: e.id, team, photos: newPhotos.map(p=>({ data:p.b64, size:p.size })) } });
+    entry: { id: e.id, team, photos: newPhotos.map(p=>({ data:p.b64, size:p.size, kind:p.kind||"img" })) } });
   if(r && r.ok){
     e.sheetPhoto = r.photo || e.sheetPhoto;
     e.photos = (e.photos||[]).concat(newPhotos);
@@ -1854,6 +1913,7 @@ async function doDeleteAction(){
     e.syncState = "삭제대기";   // 수정대기 → 삭제대기 (delete wins)도 포함
     await saveEntry(e);
     toast("삭제 대기 — 다음 동기화에서 시트도 삭제");
+    if(navigator.onLine) setTimeout(()=>syncNow(false), 300);   // [v26] 삭제 직후 자동 동기화
   }
   renderList();
 }
@@ -1871,6 +1931,11 @@ async function retryPhotos(id, files){
   const newPhotos=[];
   let skipped=0;
   for(const f of files){
+    if(isPdf_(f)){                                     // [v27] PDF
+      const it = await pdfItem_(f);
+      if(it) newPhotos.push({ b64:it.b64, size:it.size, kind:"pdf" });
+      continue;
+    }
     const blob = await compress(f);
     if(!blob){ skipped++; continue; }
     const b64 = await blobToB64(blob);
@@ -1889,7 +1954,7 @@ async function retryPhotos(id, files){
         entry: {
           id: e.id, team: e.team, receiptNo: e.receiptNo,
           date: e.date, account: e.account,
-          photos: newPhotos.map(p=>({ data:p.b64, size:p.size }))
+          photos: newPhotos.map(p=>({ data:p.b64, size:p.size, kind:p.kind||"img" }))   // [v27]
         }
       })
     });
@@ -1952,7 +2017,7 @@ function bind(){
   $("fx-photo").onchange=e=>{ if(e.target.files.length) fxAddPhotos(e.target.files); e.target.value=""; };
   $("fx-photos").onclick=e=>{
     if(e.target.classList.contains("thumb-x")){
-      const i=+e.target.dataset.i; URL.revokeObjectURL(fxPhotos[i].url); fxPhotos.splice(i,1); renderFxPhotos();
+      const i=+e.target.dataset.i; if(fxPhotos[i].url) URL.revokeObjectURL(fxPhotos[i].url); fxPhotos.splice(i,1); renderFxPhotos();
     }
   };
   $("fx-list").onclick=async e=>{
@@ -1983,7 +2048,7 @@ function bind(){
   $("fx-pmgr-backdrop").onclick = closeFxPhotoMgr;
   $("photos").onclick=e=>{
     if(e.target.classList.contains("thumb-x")){
-      const i=+e.target.dataset.i; URL.revokeObjectURL(photos[i].url); photos.splice(i,1); renderPhotos();
+      const i=+e.target.dataset.i; if(photos[i].url) URL.revokeObjectURL(photos[i].url); photos.splice(i,1); renderPhotos();
     }
   };
   $("list").onclick=async e=>{

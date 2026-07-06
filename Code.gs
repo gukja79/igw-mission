@@ -225,8 +225,8 @@ function addPhotos_(body){
         failN++; continue;
       }
       const n  = existingLinks.length + okN + 1;          // 절대 위치로 파일명 번호 이어감
-      const nm = base + "_" + n + ".jpg";
-      const f  = folder.createFile(Utilities.newBlob(bytes, "image/jpeg", nm));
+      const nm = base + "_" + n + picExt_(pics[i]);        // [v27] .jpg/.pdf
+      const f  = folder.createFile(Utilities.newBlob(bytes, picMime_(pics[i]), nm));
       if(PHOTO_SHARE === "view"){
         try{ f.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW); }catch(_){}
       }
@@ -465,6 +465,10 @@ function trashPhotosFromRow_(sh, row, photoCol){
 }
 
 // 사진 저장 공통 — K열에 링크 기록, {ok, fail} 반환
+// [v27/PDF] 첨부 종류 → MIME/확장자. kind 없으면 이미지 = 구버전 앱 완전 호환.
+function picMime_(p){ return (p && p.kind === "pdf") ? "application/pdf" : "image/jpeg"; }
+function picExt_(p){ return (p && p.kind === "pdf") ? ".pdf" : ".jpg"; }
+
 function savePhotos_(sh, row, entry, receiptNo){
   let okN = 0, failN = 0;
   try{
@@ -484,8 +488,8 @@ function savePhotos_(sh, row, entry, receiptNo){
         failN++;
         continue;
       }
-      const nm = base + (pics.length > 1 ? "_" + (i + 1) : "") + ".jpg";
-      const f = folder.createFile(Utilities.newBlob(bytes, "image/jpeg", nm));
+      const nm = base + (pics.length > 1 ? "_" + (i + 1) : "") + picExt_(pics[i]);   // [v27] .jpg/.pdf
+      const f = folder.createFile(Utilities.newBlob(bytes, picMime_(pics[i]), nm));
       if(PHOTO_SHARE === "view"){
         try{ f.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW); }catch(_){}
       }
@@ -583,8 +587,8 @@ function savePhotosG_(sh, row, entry){
         failN++;
         continue;
       }
-      const nm = base + (pics.length > 1 ? "_" + (i + 1) : "") + ".jpg";
-      const f = folder.createFile(Utilities.newBlob(bytes, "image/jpeg", nm));
+      const nm = base + (pics.length > 1 ? "_" + (i + 1) : "") + picExt_(pics[i]);   // [v27] .jpg/.pdf
+      const f = folder.createFile(Utilities.newBlob(bytes, picMime_(pics[i]), nm));
       if(PHOTO_SHARE === "view"){
         try{ f.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW); }catch(_){}
       }
@@ -766,8 +770,8 @@ function fxAddPhotos_(body){
       const bytes = Utilities.base64Decode(b64);
       if(want && bytes.length !== want){ added.push("⚠ 사진 전송 손상(" + bytes.length + "/" + want + ")"); failN++; continue; }
       const n  = existingLinks.length + okN + 1;
-      const nm = base + "_" + n + ".jpg";
-      const f  = folder.createFile(Utilities.newBlob(bytes, "image/jpeg", nm));
+      const nm = base + "_" + n + picExt_(pics[i]);        // [v27] .jpg/.pdf
+      const f  = folder.createFile(Utilities.newBlob(bytes, picMime_(pics[i]), nm));
       if(PHOTO_SHARE === "view"){ try{ f.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW); }catch(_){} }
       added.push(f.getUrl());
       okN++;
