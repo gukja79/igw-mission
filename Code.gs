@@ -731,7 +731,9 @@ function fxDelete_(body){
     if(!row) return json({ ok:true });   // 이미 없음 → 멱등 ok
 
     trashPhotosFromRow_(sh, row, FX_PHOTO_COL);
-    sh.deleteRow(row);
+    // [v28.1] deleteRow 금지 — 행 삭제 시 같은 줄의 보조표(J1:M4)가 밀려 파손됨.
+    // A:H 내용만 비운다 (빈 줄은 append·pull·id탐색 모두와 호환).
+    sh.getRange(row, 1, 1, 8).clearContent();
     return json({ ok:true, team:body.team, row:row });
   }catch(err){
     return json({ ok:false, error:String(err) });
