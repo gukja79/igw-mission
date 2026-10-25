@@ -42,7 +42,8 @@ const SHEETS = {
   "인도네시아1": "12ZlQ8bTSGSH7lQw2RlTwI-Jfg0Mblp6LsFX1cOeuMvg",
   "말레이시아1": "1RNN6EXY4f6odesLD_81TDBABWhO4-F8jyZpRGerVwFs",
   "스리랑카":    "1taiBNG4-x93FQgTricG1uoT7-qcG0Ej3AowxD4o9uy4",
-  "캄보디아1":   "1LHlxZ3Pn9_S4nxchht0eIPDB-pNqVJeRd5XWS_-gOp4"
+  "캄보디아1":   "1LHlxZ3Pn9_S4nxchht0eIPDB-pNqVJeRd5XWS_-gOp4",
+  "미얀마1":     "1-op1rAJR1N0068MS9aOO95WwkUIT3yKlrUf0MjQrIc4"
 };
 
 // L열에 entry id 기록 → 수정·삭제·재시도 모두 id 로 행을 찾는다
